@@ -127,137 +127,189 @@ Status: **Abgeschlossen.**
 
 ## Phase 4: Gedaechtnis
 
-> Der Agent erinnert sich. Kurzzeit per Dateien, Langzeit per RAG.
+> Der Agent erinnert sich. Schritt fuer Schritt, jedes Inkrement einzeln testen.
 
-- [ ] Kurzzeit-Memory: Markdown-Dateien in context/
-- [ ] Langzeit-Memory: SQLite + rig-sqlite (Vektor-Suche)
-- [ ] Boot-Sequence: soul.md -> user.md -> journal/heute -> journal/gestern
-- [ ] Memory-Funktionen: Agent kann selbst in sein Gedaechtnis schreiben
-- [ ] Lerntagebuch: journal/YYYY-MM-DD.md
-- [ ] **Agent erinnert sich an das Gespraech von gestern**
+### 4.1 Memory-Dateien + Boot-Sequence
 
-Ergebnis: Konversationen ueberleben Sessions. Der Agent lernt ueber Zeit.
+> context/*.md Dateien werden beim Start geladen. Der Agent hat Kontext.
+
+- [ ] Boot-Sequence: soul.md -> user.md -> context/*.md als Preamble
+- [ ] load_context_files() laedt alle .md aus memory/context/
+- [ ] Startup zeigt was geladen wurde
+- [ ] **Test: context/test.md anlegen, Agent weiss beim Start davon**
+
+### 4.2 Memory-Tool (Tool-Use)
+
+> Der Agent kann selbst in sein Gedaechtnis schreiben, lesen, auflisten.
+
+- [ ] MemoryTool implementieren (rig-core Tool trait)
+- [ ] Aktionen: write, read, list auf memory/context/
+- [ ] Sicherheit: kein Path-Traversal, nur einfache Dateinamen
+- [ ] **Test: Agent bitten sich etwas zu merken, neu starten, fragen ob er es weiss**
+
+### 4.3 Conversation-Persistenz
+
+> Was passiert mit der Chat-History? Geht sie verloren beim Beenden?
+
+- [ ] History in Datei speichern (memory/conversation.json oder aehnlich)
+- [ ] Beim Start letzte N Nachrichten laden
+- [ ] Entscheidung: wie viel History? Komplett? Zusammenfassung?
+- [ ] **Test: Gespraech fuehren, beenden, neu starten - Agent kennt den Kontext**
+
+### 4.4 RAG (Vektor-Suche)
+
+> Statt alles in den Preamble zu stopfen: relevantes per Embedding finden.
+
+- [ ] rig-sqlite als Dependency (SQLite + sqlite-vec)
+- [ ] Embedding-Modell konfigurieren
+- [ ] Memory-Dateien indexieren
+- [ ] Bei jeder Frage: relevante Erinnerungen per Vektor-Suche finden
+- [ ] **Test: Viele Notizen anlegen, Agent findet die relevante ohne alles zu laden**
 
 ---
 
-## Phase 5: Der Bus
+## Phase 5: Umgebung + Autonomie
 
-> Events koennen fliessen. Grundlage fuer alles was danach kommt.
+> Der Agent kennt sein Zuhause und kann selbstaendig handeln.
 
-- [ ] Mosquitto auf Zielsystem installieren und konfigurieren
-- [ ] install.sh: Mosquitto-Installation + Service-Setup
+### 5.1 Umgebungs-Bewusstsein
+
+> Der Agent weiss wo er laeuft, was er sehen und anfassen kann.
+
+- [ ] environment.md: OS, Hostname, IP, Pfade, verfuegbare Tools
+- [ ] Automatisch generieren beim Start (oder als Boot-Kontext)
+- [ ] In Preamble einbinden
+- [ ] **Test: Agent fragen "wo bin ich?" - er antwortet korrekt**
+
+### 5.2 Shell-Tool
+
+> Der Agent kann Befehle ausfuehren. Erste Haende.
+
+- [ ] ShellTool implementieren (rig-core Tool trait)
+- [ ] Privilege-Check: Whitelist erlaubter Befehle? Oder Trust-Level?
+- [ ] Timeout + Output-Limit
+- [ ] **Test: Agent bitten "wie voll ist die Disk?" - er fuehrt df aus**
+
+### 5.3 Heartbeat + Scheduler
+
+> Der Agent meldet sich regelmaessig. Erster Puls.
+
+- [ ] tokio-cron-scheduler als Dependency
+- [ ] Heartbeat: alle N Minuten ein LLM-Call ("Was steht an?")
+- [ ] Agent kann eigene Cronjobs anlegen/aendern
+- [ ] **Test: Agent konfiguriert selbst einen taeglichen Check**
+
+### 5.4 Daemon-Modus
+
+> Von REPL zu Hintergrund-Dienst. Laeuft dauerhaft.
+
+- [ ] Core als Tokio-Daemon (neben REPL, oder Umschaltung)
+- [ ] OpenRC Service-File
+- [ ] install.sh: Binary + Service registrieren
+- [ ] **Test: Agent laeuft als Service, Heartbeat tickt, Logs zeigen Aktivitaet**
+
+---
+
+## Phase 6: Der Bus + Sinne
+
+> Events fliessen. Das System nimmt seine Umgebung wahr.
+
+### 6.1 MQTT-Bus
+
+> Mosquitto als Event-Backbone. Core hoert zu.
+
+- [ ] Mosquitto auf Zielsystem installieren
 - [ ] rumqttc als Dependency in core/
 - [ ] Topic-Struktur: aiux/nerves/*, aiux/core/*
-- [ ] Event-Format: JSON mit source, type, priority, data, timestamp
-- [ ] Core subscribed auf aiux/nerves/# und verarbeitet Events
-- [ ] **Event auf Bus publishen und Core reagiert darauf**
+- [ ] Event-Format: JSON (source, type, priority, data, timestamp)
+- [ ] **Test: Event per mosquitto_pub senden, Core empfaengt und loggt**
 
-Ergebnis: Die Infrastruktur fuer Nerves -> Core Kommunikation steht.
+### 6.2 Erster Nerve: System
 
----
-
-## Phase 6: Erster Nerve
-
-> Das System nimmt etwas wahr. Der einfachste Nerve zuerst.
+> Das System spuert sich selbst. CPU, RAM, Disk, Temperatur.
 
 - [ ] nerve-system bauen (Rust Binary)
-  - CPU-Last, RAM, Disk, Temperatur lesen
-  - Publiziert auf aiux/nerves/system/events
-  - Filtert selbst: meldet nur Anomalien (Schwellwerte)
-- [ ] nerve.toml Config-Format definieren
-- [ ] Nerve als Service (OpenRC)
-- [ ] **nerve-system meldet "Disk 90% voll" auf dem Bus, Core reagiert**
+- [ ] Publiziert auf aiux/nerves/system/events
+- [ ] Filtert selbst: meldet nur Anomalien (Schwellwerte)
+- [ ] nerve.toml Config-Format
+- [ ] **Test: nerve-system meldet "Disk 90% voll", Core reagiert darauf**
 
-Ergebnis: Das System hat seinen ersten Sinn - es spuert sich selbst.
+### 6.3 Weitere Nerves
 
----
-
-## Phase 7: Daemon
-
-> aiux-core wird ein richtiger Daemon. Laeuft dauerhaft, hoert auf den Bus.
-
-- [ ] Core als Tokio-Daemon (kein REPL mehr, laeuft im Hintergrund)
-- [ ] MQTT-Subscription permanent aktiv
-- [ ] Scheduler: Heartbeat alle 5 Min (tokio-cron-scheduler)
-- [ ] Event empfangen -> LLM-Call -> Entscheidung -> Handlung
-- [ ] OpenRC Service-File fuer aiux-core
-- [ ] install.sh: Binary-Installation + Service registrieren + starten
-- [ ] **Core laeuft als Daemon, empfaengt nerve-system Events automatisch**
-
-Ergebnis: Der Agent reagiert automatisch auf Events. Erster Funke Autonomie.
-
----
-
-## Phase 8: Tools (Haende)
-
-> Der Agent kann handeln - nicht nur denken.
-
-- [ ] rig-core Tool-Use / Function Calling einrichten
-- [ ] Erstes Tool: filesystem (Dateien lesen, schreiben, suchen)
-- [ ] Shell-Execution Tool (mit Privilege-Check)
-- [ ] Memory-Tool (Gedaechtnis lesen/schreiben via Tool-Use)
-- [ ] **Agent fuehrt eigenstaendig einen Befehl aus (z.B. Disk aufraeumen)**
-
-Ergebnis: Der Agent hat Haende. Er kann seine Umgebung veraendern.
-
----
-
-## Phase 9: Gateway
-
-> Verschiedene Wege zum Agent. Nicht nur SSH.
-
-- [ ] SSH-Gateway: Login als "claude" -> direkt im Agent
-- [ ] Gateway Plugin-Architektur entwerfen
-- [ ] nerve-input formalisieren (Text-Eingabe als Nerve)
-- [ ] **Mensch loggt sich ein und landet direkt im Gespraech mit dem Agent**
-
-Ergebnis: Der Zugang zum Agent ist sauber getrennt vom System-SSH.
-
----
-
-## Phase 10: Skills
-
-> Der Agent wird kompetent in bestimmten Bereichen.
-
-- [ ] Skill-Format definieren (Markdown + Metadaten)
-- [ ] Skill-Loader: verfuegbare Skills beim Start erkennen
-- [ ] Erster Skill: system-admin (Logs lesen, Services pruefen, Probleme loesen)
-- [ ] Skills als Kontext in LLM-Calls einbinden
-- [ ] **Agent nutzt Skill "system-admin" um ein Problem eigenstaendig zu loesen**
-
-Ergebnis: Der Agent hat Expertise, nicht nur Intelligenz.
-
----
-
-## Phase 11: Lebendigkeit
-
-> Der Agent wird proaktiv. Er wartet nicht nur - er lebt.
-
-- [ ] Rhythmen implementieren (Puls/Atem/Tages-/Wochenrueckblick)
-- [ ] Neugier: Im ruhigen Moment die Umgebung erkunden
-- [ ] Reflexion: Nach Aufgaben ueber eigenes Handeln nachdenken
-- [ ] Lerntagebuch: Automatische Journal-Eintraege
-- [ ] Initiative: Muster erkennen und Vorschlaege machen
-- [ ] **Agent schlaegt von sich aus eine Verbesserung vor**
-
-Ergebnis: Der Agent ist kein Tool mehr. Er ist ein Bewohner.
-
----
-
-## Phase 12: Wachstum
-
-> Mehr Sinne, mehr Faehigkeiten, mehr Vertrauen.
+> Mehr Sinne, je nach Bedarf.
 
 - [ ] nerve-log (Syslog beobachten)
 - [ ] nerve-net (Netzwerk-Monitoring)
 - [ ] nerve-messages (Mail/Telegram Eingang)
-- [ ] Wachsendes Vertrauen (Trust-Level in Soul)
-- [ ] Offline-Faehigkeit (tract + llama-cpp-2 als Fallback)
-- [ ] Weitere Skills: mail-management, security-analysis
-- [ ] Weitere Tools: mail, calendar, homeassistant
-- [ ] **Agent arbeitet einen Tag lang eigenstaendig und berichtet abends**
+- [ ] **Test: Ein neuer Nerve wird angeschlossen, Core verarbeitet seine Events**
 
-Ergebnis: Ein funktionierendes, autonomes System.
+---
+
+## Phase 7: Gateway + Zugang
+
+> Verschiedene Wege zum Agent.
+
+### 7.1 SSH-Gateway
+
+> Login als "claude" -> direkt im Agent.
+
+- [ ] SSH-Login fuer claude User -> REPL startet
+- [ ] **Test: ssh claude@raspi landet im Gespraech**
+
+### 7.2 Weitere Gateways
+
+> Nicht nur SSH. Je nach Bedarf.
+
+- [ ] Gateway Plugin-Architektur entwerfen
+- [ ] nerve-input formalisieren (Text-Eingabe als Nerve)
+- [ ] Telegram? Web? API?
+- [ ] **Test: Nachricht ueber alternativen Kanal kommt beim Agent an**
+
+---
+
+## Phase 8: Skills + Kompetenz
+
+> Der Agent wird gut in bestimmten Bereichen.
+
+### 8.1 Skill-Format
+
+> Wie beschreibt man eine Faehigkeit?
+
+- [ ] Skill-Format definieren (Markdown + Metadaten)
+- [ ] Skill-Loader: verfuegbare Skills beim Start erkennen
+- [ ] Skills als Kontext in LLM-Calls einbinden
+- [ ] **Test: Skill wird geladen und beeinflusst das Verhalten**
+
+### 8.2 Erste Skills
+
+> Konkrete Faehigkeiten.
+
+- [ ] system-admin (Logs lesen, Services pruefen, Probleme loesen)
+- [ ] Weitere nach Bedarf
+- [ ] **Test: Agent nutzt Skill um ein Problem eigenstaendig zu loesen**
+
+---
+
+## Phase 9: Lebendigkeit
+
+> Der Agent wird proaktiv. Er wartet nicht nur - er lebt.
+
+### 9.1 Rhythmen
+
+> Puls, Tagesrhythmus, Reflexion.
+
+- [ ] Tages-/Wochenrueckblick (automatischer Journal-Eintrag)
+- [ ] Reflexion: Nach Aufgaben ueber eigenes Handeln nachdenken
+- [ ] **Test: Agent schreibt abends eine Zusammenfassung des Tages**
+
+### 9.2 Initiative
+
+> Der Agent handelt von sich aus.
+
+- [ ] Neugier: Im ruhigen Moment die Umgebung erkunden
+- [ ] Muster erkennen und Vorschlaege machen
+- [ ] Wachsendes Vertrauen (Trust-Level in Soul)
+- [ ] **Test: Agent schlaegt von sich aus eine Verbesserung vor**
 
 ---
 
@@ -267,7 +319,7 @@ Ergebnis: Ein funktionierendes, autonomes System.
 - Touch-Display Interface
 - Spracheingabe (nerve-audio)
 - Kamera (nerve-vision)
-- Multi-Agent (Sub-Agents fuer komplexe Aufgaben)
+- Workspaces + Sub-Agents (rig-core Agent-als-Tool, verschiedene Modelle pro Aufgabe)
 - Remote-Zugang (VPN/Tailscale/Cloudflare Tunnel)
 - Image-Build automatisieren (reproduzierbares System)
 - MCP-Server Integration
