@@ -2,32 +2,30 @@
 
 ## Projekt
 
-AIUX ist ein neuronales, LLM-gesteuertes Betriebssystem auf Basis von Alpine Linux.
+AIUX ist ein neuronales, LLM-gesteuertes Betriebssystem.
 Embodied AI - ein OS das wahrnimmt, versteht und handelt.
-Zielplattform: Raspberry Pi 4 (aarch64, 8GB RAM).
+Primaer: Raspberry Pi 4 (aarch64, 8GB RAM), laeuft aber ueberall.
 
 ## Tech-Stack
 
-- **Basis-OS**: Alpine Linux 3.23.3 (musl, busybox)
-- **LLM-Engine**: aichat v0.30.0 (unverändert, als Subprocess via HTTP-API)
-- **Core**: aiux-core (Rust Daemon) - Bus-Anbindung, Scheduler, Autonomie
-- **Bus**: Mosquitto (MQTT, aus Alpine Repos)
-- **Memory**: Markdown-Dateien (Kurzzeit) + SQLite/RAG via aichat (Langzeit)
-- **Embedding**: Konfigurierbar (mistral-embed API oder Ollama lokal)
-- **Tools**: MCP-Server + aichat llm-functions + Shell
-- **Skills**: aichat Agents (Markdown Instructions)
-- **Lokale Inference**: ONNX Runtime (für Nerves)
-- **Dependencies**: cargo vendor (offline-fähig)
+- **LLM Framework**: rig-core (Anthropic Claude, Streaming, Tool-Use, RAG)
+- **Vector Store**: rig-sqlite (SQLite + sqlite-vec)
+- **Bus**: Mosquitto (MQTT) + rumqttc (Pure Rust Client)
+- **Lokale Inference**: tract-onnx (Pure Rust ONNX)
+- **Async**: tokio
+- **Scheduler**: tokio-cron-scheduler
+- **Sprache**: Rust
 
 ## Architektur
 
-- **aiux-core** - Rust Daemon: wraps aichat, Bus, Scheduler, Autonomie
-- **aiux-nerves** - Sinnesorgane (passiv, beobachten, melden auf MQTT-Bus)
-- **aiux-gateway** - Plugin-Architektur für Zugangswege (SSH, Telegram, Web, App)
-- **Mosquitto** - Event-Bus (MQTT Pub/Sub)
-- **aichat** - LLM-Engine (Sessions, RAG, Tool-Use, MCP, HTTP-API)
+- **core/** - aiux-core: Rust Daemon (LLM, Bus, Scheduler, Memory, Tools)
+- **nerve/** - aiux-nerve: Sinnesorgane (passiv, beobachten, melden auf Bus)
+- **home/** - Agent-Home: soul.md, user.md, skills, tools (wird deployed)
 
-Referenz-Architektur: OpenClaw (Konzepte übernommen, Implementierung eigen in Rust).
+soul.md = System-Prompt, wird direkt von rig-core als Preamble geladen.
+Keine externen Tools die ihre eigene Struktur aufzwingen.
+
+Siehe docs/ARCHITECTURE.md fuer Details.
 
 ## Raspi
 
@@ -40,6 +38,5 @@ Referenz-Architektur: OpenClaw (Konzepte übernommen, Implementierung eigen in R
 
 - Commits: feat(<scope>):, fix(<scope>):, docs:, refactor:, test:
 - Merges mit --no-ff
-- Docs in docs/ (PRD.md = Vision, ROADMAP.md = Phasen-Plan)
-- ROADMAP.md ist die zentrale Quelle für den aktuellen Stand
-- Sprache: Deutsch (Code-Kommentare dürfen Englisch sein)
+- Docs: PRD.md (Produkt), ARCHITECTURE.md (Technik), ROADMAP.md (Phasen)
+- Sprache: Deutsch (Code-Kommentare duerfen Englisch sein)

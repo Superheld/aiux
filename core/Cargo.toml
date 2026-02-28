@@ -1,0 +1,13 @@
+[package]
+name = "aiux-core"
+version = "0.1.0"
+edition = "2021"
+description = "AIUX Core - Rust Daemon: Bus, Scheduler, Autonomie"
+license = "MIT"
+
+# Dependencies kommen in Phase 6
+# [dependencies]
+# tokio = { version = "1", features = ["full"] }
+# rumqttc = "0.24"          # MQTT Client
+# serde = { version = "1", features = ["derive"] }
+# serde_json = "1"
