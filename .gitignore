@@ -10,6 +10,9 @@ target/
 *.key
 *.pem
 
+# Laufzeit-Daten
+home/memory/conversation.json
+
 # Build-Artefakte
 build/output/
 *.img
@@ -25,3 +28,4 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+*.code-workspace

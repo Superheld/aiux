@@ -95,6 +95,23 @@ fn find_home() -> PathBuf {
     local
 }
 
+/// Laedt die gespeicherte Konversations-History (oder leeren Vec).
+fn load_history(home: &PathBuf) -> Vec<Message> {
+    let path = home.join("memory/conversation.json");
+    match fs::read_to_string(&path) {
+        Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
+        Err(_) => vec![],
+    }
+}
+
+/// Speichert die aktuelle History als JSON.
+fn save_history(home: &PathBuf, history: &[Message]) {
+    let path = home.join("memory/conversation.json");
+    if let Ok(data) = serde_json::to_string_pretty(history) {
+        fs::write(&path, data).ok();
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     // .env laden (sucht im aktuellen Verzeichnis)
@@ -128,7 +145,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .tool(memory_tool)
         .build();
 
-    let mut history: Vec<Message> = vec![];
+    let mut history = load_history(&home);
     let stdin = io::stdin();
 
     println!("AIUX v0.1.0");
@@ -138,7 +155,10 @@ async fn main() -> Result<(), anyhow::Error> {
         println!("  [+] {} Context-Datei(en)", context_count);
     }
     println!("  [+] Memory-Tool (write/read/list)");
-    println!("Zum Beenden: quit\n");
+    if !history.is_empty() {
+        println!("  [+] {} History-Nachrichten", history.len());
+    }
+    println!("Zum Beenden: quit | clear = History loeschen\n");
 
     loop {
         print!("Du: ");
@@ -154,6 +174,13 @@ async fn main() -> Result<(), anyhow::Error> {
         if input == "quit" || input == "exit" {
             println!("\nTschuess.");
             break;
+        }
+        if input == "clear" {
+            history.clear();
+            let path = home.join("memory/conversation.json");
+            fs::remove_file(&path).ok();
+            println!("History geloescht.\n");
+            continue;
         }
 
         // Antwort-Label mit Leerzeile davor
@@ -186,9 +213,10 @@ async fn main() -> Result<(), anyhow::Error> {
         // Zwei Leerzeilen nach Antwort fuer Uebersicht
         println!("\n");
 
-        // History aktualisieren
+        // History aktualisieren und persistieren
         history.push(Message::user(&input));
         history.push(Message::assistant(&response_text));
+        save_history(&home, &history);
     }
 
     Ok(())
