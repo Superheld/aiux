@@ -15,6 +15,9 @@ dhcpcd
 doas
 iptables
 
+# MQTT
+mosquitto
+
 # Tools
 htop
 lsblk
