@@ -1,13 +1,13 @@
 [package]
-name = "aiux-agent"
+name = "aiux-core"
 version = "0.1.0"
 edition = "2021"
-description = "AIUX LLM Agent - Kooperativer KI-Co-Pilot"
+description = "AIUX Core - Rust Daemon: Bus, Scheduler, Autonomie"
 license = "MIT"
 
-# Dependencies kommen in Phase 2
+# Dependencies kommen in Phase 6
 # [dependencies]
-# llm = "1.3"
 # tokio = { version = "1", features = ["full"] }
+# rumqttc = "0.24"          # MQTT Client
 # serde = { version = "1", features = ["derive"] }
 # serde_json = "1"

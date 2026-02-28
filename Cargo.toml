@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "agent",
+    "core",
     "nerve",
-    "hub",
+    "aichat",
 ]
