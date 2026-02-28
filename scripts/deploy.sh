@@ -2,8 +2,7 @@
 # Deploy AIUX Dateien auf den Raspi
 # Usage: ./scripts/deploy.sh [user@host]
 #
-# Synct home/ nach /home/claude/ und aichat Role aus soul.md.
-# API-Keys und config.yaml werden NICHT ueberschrieben.
+# Synct home/ nach /home/claude/ auf dem Raspi.
 
 set -e
 
@@ -14,14 +13,8 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 echo "Deploying to $HOST:$TARGET ..."
 
-# Memory, Skills, Tools syncen
-rsync -av "$PROJECT_DIR/home/memory/" "$HOST:$TARGET/memory/"
-rsync -av "$PROJECT_DIR/home/skills/" "$HOST:$TARGET/skills/"
-rsync -av "$PROJECT_DIR/home/tools/" "$HOST:$TARGET/tools/"
-
-# Soul als aichat Role deployen (eine Quelle: home/memory/soul.md)
-ssh "$HOST" "mkdir -p $TARGET/.config/aichat/roles"
-rsync -av "$PROJECT_DIR/home/memory/soul.md" "$HOST:$TARGET/.config/aichat/roles/aiux.md"
+# Home-Verzeichnis syncen
+rsync -av "$PROJECT_DIR/home/" "$HOST:$TARGET/"
 
 # Ownership fixen
 ssh "$HOST" "chown -R claude:claude $TARGET"
