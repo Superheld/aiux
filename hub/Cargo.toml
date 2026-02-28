@@ -1,0 +1,10 @@
+[package]
+name = "aiux-hub"
+version = "0.1.0"
+edition = "2021"
+description = "AIUX Hub - Verbindet Agent, Nerven und System"
+license = "MIT"
+
+# Dependencies kommen spaeter
+# [dependencies]
+# tokio = { version = "1", features = ["full"] }

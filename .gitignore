@@ -1,0 +1,26 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Vendor (optional - auskommentieren wenn vendor/ ins Repo soll)
+# vendor/
+
+# Secrets
+.env
+*.key
+*.pem
+
+# Build-Artefakte
+build/output/
+*.img
+*.img.gz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

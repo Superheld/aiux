@@ -1,0 +1,11 @@
+[package]
+name = "aiux-nerve"
+version = "0.1.0"
+edition = "2021"
+description = "AIUX Nerve - Lokale neuronale Netze als System-Daemons"
+license = "MIT"
+
+# Dependencies kommen spaeter
+# [dependencies]
+# ort = "2"  # ONNX Runtime Bindings
+# tokio = { version = "1", features = ["full"] }

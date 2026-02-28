@@ -1,0 +1,20 @@
+# AIUX Paketliste für Alpine
+# Wird beim Image-Build via apk installiert.
+
+# Basis
+bash
+curl
+jq
+
+# Netzwerk
+openssh
+wpa_supplicant
+dhcpcd
+
+# Security
+doas
+iptables
+
+# Tools
+htop
+lsblk
