@@ -11,7 +11,7 @@ target/
 *.pem
 
 # Laufzeit-Daten
-home/memory/conversation.json
+home/memory/conversation-*.json
 
 # Build-Artefakte
 build/output/

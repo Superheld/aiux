@@ -95,9 +95,15 @@ fn find_home() -> PathBuf {
     local
 }
 
-/// Laedt die gespeicherte Konversations-History (oder leeren Vec).
+/// Gibt den Dateinamen fuer die heutige Konversation zurueck.
+fn conversation_path(home: &PathBuf) -> PathBuf {
+    let today = chrono::Local::now().format("%Y-%m-%d");
+    home.join(format!("memory/conversation-{}.json", today))
+}
+
+/// Laedt die gespeicherte Konversations-History fuer heute (oder leeren Vec).
 fn load_history(home: &PathBuf) -> Vec<Message> {
-    let path = home.join("memory/conversation.json");
+    let path = conversation_path(home);
     match fs::read_to_string(&path) {
         Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
         Err(_) => vec![],
@@ -106,7 +112,7 @@ fn load_history(home: &PathBuf) -> Vec<Message> {
 
 /// Speichert die aktuelle History als JSON.
 fn save_history(home: &PathBuf, history: &[Message]) {
-    let path = home.join("memory/conversation.json");
+    let path = conversation_path(home);
     if let Ok(data) = serde_json::to_string_pretty(history) {
         fs::write(&path, data).ok();
     }
@@ -177,8 +183,7 @@ async fn main() -> Result<(), anyhow::Error> {
         }
         if input == "clear" {
             history.clear();
-            let path = home.join("memory/conversation.json");
-            fs::remove_file(&path).ok();
+            fs::remove_file(conversation_path(&home)).ok();
             println!("History geloescht.\n");
             continue;
         }
