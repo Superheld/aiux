@@ -5,7 +5,9 @@
 
 use tokio::sync::broadcast;
 
-use crate::events::Event;
+pub mod events;
+
+use events::Event;
 
 /// Der Event-Bus. Verteilt Events an alle Subscriber.
 #[derive(Debug)]
