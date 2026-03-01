@@ -20,7 +20,11 @@ use rig::streaming::{StreamedAssistantContent, StreamingChat};
 use crate::bus::Bus;
 use crate::config::Config;
 use crate::events::Event;
+use crate::history::{
+    context_window_size, conversation_path, load_history, save_history, should_compact,
+};
 use crate::memory::MemoryTool;
+use crate::preamble::{count_context_files, load_preamble};
 
 /// Macro: Streamt die Agent-Antwort und sammelt den Text.
 /// Wird pro Provider-Arm genutzt, weil jeder einen eigenen Typ erzeugt.
@@ -164,9 +168,10 @@ impl Core {
                 stream_agent!(agent, input, self.history_for_agent(), self.bus)
             }
             "ollama" => {
-                let client: ollama::Client = ollama::Client::new(rig::client::Nothing).map_err(|e| {
-                    anyhow::anyhow!("Ollama-Client konnte nicht erstellt werden: {}", e)
-                })?;
+                let client: ollama::Client =
+                    ollama::Client::new(rig::client::Nothing).map_err(|e| {
+                        anyhow::anyhow!("Ollama-Client konnte nicht erstellt werden: {}", e)
+                    })?;
                 let agent = client
                     .agent(&self.config.model)
                     .preamble(&self.preamble)
@@ -314,137 +319,6 @@ impl Core {
     }
 }
 
-/// Prueft ob die Input-Token-Nutzung den Schwellwert erreicht hat.
-fn should_compact(input_tokens: u64, context_window: u64, threshold_percent: u64) -> bool {
-    if context_window == 0 {
-        return false;
-    }
-    input_tokens * 100 / context_window >= threshold_percent
-}
-
-/// Schaetzt die Context-Window-Groesse anhand des Modellnamens.
-/// Config-Override hat Vorrang (z.B. fuer Ollama-Modelle).
-fn context_window_size(model: &str, config_override: Option<u64>) -> u64 {
-    if let Some(v) = config_override {
-        return v;
-    }
-    if model.starts_with("claude") {
-        200_000
-    } else if model.starts_with("mistral-large") {
-        128_000
-    } else if model.starts_with("mistral-small") {
-        32_000
-    } else {
-        128_000 // Konservativer Default
-    }
-}
-
-// --- Hilfsfunktionen (aus dem alten main.rs) ---
-
-/// Laedt eine Datei oder gibt einen leeren String zurueck.
-fn read_file(path: &PathBuf) -> String {
-    fs::read_to_string(path).unwrap_or_default()
-}
-
-/// Laedt alle .md Dateien aus einem Verzeichnis, alphabetisch sortiert.
-fn load_context_files(dir: &PathBuf) -> Vec<(String, String)> {
-    let mut files: Vec<(String, String)> = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(dir) {
-        let mut paths: Vec<PathBuf> = entries
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.extension().map_or(false, |ext| ext == "md"))
-            .collect();
-
-        paths.sort();
-
-        for path in paths {
-            let name = path.file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let content = read_file(&path);
-            if !content.is_empty() {
-                files.push((name, content));
-            }
-        }
-    }
-
-    files
-}
-
-/// Zaehlt die Context-Dateien (fuer Boot-Info).
-fn count_context_files(home: &PathBuf) -> usize {
-    load_context_files(&home.join("memory/context")).len()
-}
-
-/// Baut den System-Prompt zusammen (Boot-Sequence):
-/// 1. soul.md - Wer bin ich?
-/// 2. user.md - Mit wem rede ich?
-/// 3. context/*.md - Was weiss ich noch?
-fn load_preamble(home: &PathBuf) -> String {
-    let mut parts: Vec<String> = Vec::new();
-
-    let soul = read_file(&home.join("memory/soul.md"));
-    if !soul.is_empty() {
-        parts.push(soul);
-    }
-
-    let user = read_file(&home.join("memory/user.md"));
-    if !user.is_empty() {
-        parts.push(user);
-    }
-
-    let context_files = load_context_files(&home.join("memory/context"));
-    for (name, content) in &context_files {
-        parts.push(format!("# Kontext: {}\n\n{}", name, content));
-    }
-
-    parts.join("\n\n---\n\n")
-}
-
-/// Findet das home/ Verzeichnis.
-pub fn find_home() -> PathBuf {
-    let local = PathBuf::from("home");
-    if local.join("memory/soul.md").exists() {
-        return local;
-    }
-
-    let deployed = PathBuf::from("/home/claude");
-    if deployed.join("memory/soul.md").exists() {
-        return deployed;
-    }
-
-    local
-}
-
-/// Gibt den Dateinamen fuer die heutige Konversation zurueck.
-fn conversation_path(home: &PathBuf) -> PathBuf {
-    let today = chrono::Local::now().format("%Y-%m-%d");
-    home.join(format!("memory/conversations/conversation-{}.json", today))
-}
-
-/// Laedt die gespeicherte Konversations-History fuer heute.
-fn load_history(home: &PathBuf) -> Vec<Message> {
-    // Verzeichnis erstellen falls nicht vorhanden
-    let conv_dir = home.join("memory/conversations");
-    fs::create_dir_all(&conv_dir).ok();
-
-    let path = conversation_path(home);
-    match fs::read_to_string(&path) {
-        Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
-        Err(_) => vec![],
-    }
-}
-
-/// Speichert die aktuelle History als JSON.
-fn save_history(home: &PathBuf, history: &[Message]) {
-    let path = conversation_path(home);
-    if let Ok(data) = serde_json::to_string_pretty(history) {
-        fs::write(&path, data).ok();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,7 +326,6 @@ mod tests {
 
     // --- Helper ---
 
-    /// Erstellt ein temporaeres home/ mit der noetigsten Struktur.
     fn test_home() -> (TempDir, PathBuf) {
         let tmp = TempDir::new().unwrap();
         let home = tmp.path().to_path_buf();
@@ -476,215 +349,6 @@ mod tests {
     fn test_core(home: PathBuf) -> Core {
         let bus = Arc::new(Bus::new(16));
         Core::new(bus, home, test_config())
-    }
-
-    // ==========================================================
-    // should_compact()
-    // ==========================================================
-
-    #[test]
-    fn compact_schwelle_genau_erreicht() {
-        // 80% von 200_000 = 160_000
-        assert!(should_compact(160_000, 200_000, 80));
-    }
-
-    #[test]
-    fn compact_knapp_unter_schwelle() {
-        assert!(!should_compact(159_999, 200_000, 80));
-    }
-
-    #[test]
-    fn compact_ueber_schwelle() {
-        assert!(should_compact(180_000, 200_000, 80));
-    }
-
-    #[test]
-    fn compact_context_window_null() {
-        // Division durch 0 abgefangen
-        assert!(!should_compact(100, 0, 80));
-    }
-
-    #[test]
-    fn compact_null_prozent_schwelle() {
-        // 0% = immer kompaktifizieren (wenn tokens > 0)
-        assert!(should_compact(1, 200_000, 0));
-    }
-
-    #[test]
-    fn compact_hundert_prozent() {
-        assert!(should_compact(200_000, 200_000, 100));
-        assert!(!should_compact(199_999, 200_000, 100));
-    }
-
-    #[test]
-    fn compact_null_tokens() {
-        assert!(!should_compact(0, 200_000, 80));
-    }
-
-    // ==========================================================
-    // context_window_size()
-    // ==========================================================
-
-    #[test]
-    fn window_claude_modelle() {
-        assert_eq!(context_window_size("claude-sonnet-4-5-20250929", None), 200_000);
-        assert_eq!(context_window_size("claude-3-haiku", None), 200_000);
-    }
-
-    #[test]
-    fn window_mistral_modelle() {
-        assert_eq!(context_window_size("mistral-large-latest", None), 128_000);
-        assert_eq!(context_window_size("mistral-small-2402", None), 32_000);
-    }
-
-    #[test]
-    fn window_unbekanntes_modell() {
-        assert_eq!(context_window_size("gpt-4o", None), 128_000);
-        assert_eq!(context_window_size("", None), 128_000);
-    }
-
-    #[test]
-    fn window_config_override() {
-        // Override hat Vorrang, egal welches Modell
-        assert_eq!(context_window_size("claude-sonnet-4-5-20250929", Some(50_000)), 50_000);
-        assert_eq!(context_window_size("unbekannt", Some(8_000)), 8_000);
-    }
-
-    // ==========================================================
-    // load_preamble() / load_context_files()
-    // ==========================================================
-
-    #[test]
-    fn preamble_mit_soul_und_user() {
-        let (_tmp, home) = test_home();
-        fs::write(home.join("memory/soul.md"), "Ich bin AIUX.").unwrap();
-        fs::write(home.join("memory/user.md"), "Bruce ist cool.").unwrap();
-
-        let preamble = load_preamble(&home);
-        assert!(preamble.contains("Ich bin AIUX."));
-        assert!(preamble.contains("Bruce ist cool."));
-        assert!(preamble.contains("---")); // Trenner
-    }
-
-    #[test]
-    fn preamble_nur_soul() {
-        let (_tmp, home) = test_home();
-        fs::write(home.join("memory/soul.md"), "Ich bin AIUX.").unwrap();
-
-        let preamble = load_preamble(&home);
-        assert_eq!(preamble, "Ich bin AIUX.");
-    }
-
-    #[test]
-    fn preamble_ohne_dateien() {
-        let (_tmp, home) = test_home();
-        let preamble = load_preamble(&home);
-        assert!(preamble.is_empty());
-    }
-
-    #[test]
-    fn preamble_mit_context_dateien() {
-        let (_tmp, home) = test_home();
-        fs::write(home.join("memory/soul.md"), "Soul.").unwrap();
-        fs::write(home.join("memory/context/a.md"), "AAA").unwrap();
-        fs::write(home.join("memory/context/b.md"), "BBB").unwrap();
-
-        let preamble = load_preamble(&home);
-        assert!(preamble.contains("# Kontext: a"));
-        assert!(preamble.contains("AAA"));
-        assert!(preamble.contains("# Kontext: b"));
-        assert!(preamble.contains("BBB"));
-    }
-
-    #[test]
-    fn preamble_leere_dateien_werden_ignoriert() {
-        let (_tmp, home) = test_home();
-        fs::write(home.join("memory/soul.md"), "").unwrap();
-        fs::write(home.join("memory/context/leer.md"), "").unwrap();
-
-        let preamble = load_preamble(&home);
-        assert!(preamble.is_empty());
-    }
-
-    #[test]
-    fn context_files_nur_md() {
-        let (_tmp, home) = test_home();
-        fs::write(home.join("memory/context/notiz.md"), "Inhalt").unwrap();
-        fs::write(home.join("memory/context/bild.png"), "binary").unwrap();
-        fs::write(home.join("memory/context/readme.txt"), "text").unwrap();
-
-        let files = load_context_files(&home.join("memory/context"));
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].0, "notiz");
-    }
-
-    #[test]
-    fn context_files_sortiert() {
-        let (_tmp, home) = test_home();
-        fs::write(home.join("memory/context/c.md"), "C").unwrap();
-        fs::write(home.join("memory/context/a.md"), "A").unwrap();
-        fs::write(home.join("memory/context/b.md"), "B").unwrap();
-
-        let files = load_context_files(&home.join("memory/context"));
-        let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn context_files_leeres_verzeichnis() {
-        let (_tmp, home) = test_home();
-        let files = load_context_files(&home.join("memory/context"));
-        assert!(files.is_empty());
-    }
-
-    #[test]
-    fn context_files_verzeichnis_existiert_nicht() {
-        let (_tmp, home) = test_home();
-        let files = load_context_files(&home.join("memory/gibts_nicht"));
-        assert!(files.is_empty());
-    }
-
-    // ==========================================================
-    // save_history() / load_history()
-    // ==========================================================
-
-    #[test]
-    fn history_save_and_load_roundtrip() {
-        let (_tmp, home) = test_home();
-        let history = vec![
-            Message::user("Hallo"),
-            Message::assistant("Hi!"),
-        ];
-        save_history(&home, &history);
-
-        let loaded = load_history(&home);
-        assert_eq!(loaded.len(), 2);
-    }
-
-    #[test]
-    fn history_load_fehlende_datei() {
-        let (_tmp, home) = test_home();
-        let loaded = load_history(&home);
-        assert!(loaded.is_empty());
-    }
-
-    #[test]
-    fn history_load_kaputtes_json() {
-        let (_tmp, home) = test_home();
-        let path = conversation_path(&home);
-        fs::write(&path, "das ist kein json {{{").unwrap();
-
-        let loaded = load_history(&home);
-        assert!(loaded.is_empty()); // unwrap_or_default greift
-    }
-
-    #[test]
-    fn history_leere_liste() {
-        let (_tmp, home) = test_home();
-        save_history(&home, &[]);
-
-        let loaded = load_history(&home);
-        assert!(loaded.is_empty());
     }
 
     // ==========================================================
@@ -731,7 +395,7 @@ mod tests {
         ];
 
         let result = core.history_for_agent();
-        assert_eq!(result.len(), 2); // Alles
+        assert_eq!(result.len(), 2);
     }
 
     #[test]
@@ -748,7 +412,7 @@ mod tests {
         ];
 
         let result = core.history_for_agent();
-        assert_eq!(result.len(), 4); // Ab Marker: Marker + Summary + Neu + Neue Antwort
+        assert_eq!(result.len(), 4);
     }
 
     #[test]
@@ -767,7 +431,7 @@ mod tests {
         ];
 
         let result = core.history_for_agent();
-        assert_eq!(result.len(), 4); // Ab letztem Marker
+        assert_eq!(result.len(), 4);
     }
 
     #[test]
@@ -806,31 +470,5 @@ mod tests {
         assert!(!info.has_user);
         assert_eq!(info.context_count, 0);
         assert_eq!(info.history_count, 0);
-    }
-
-    // ==========================================================
-    // conversation_path() - neuer Pfad in conversations/
-    // ==========================================================
-
-    #[test]
-    fn conversation_path_in_conversations_subdir() {
-        let (_tmp, home) = test_home();
-        let path = conversation_path(&home);
-        // Pfad muss memory/conversations/conversation-YYYY-MM-DD.json sein
-        assert!(path.to_string_lossy().contains("memory/conversations/conversation-"));
-        assert!(path.to_string_lossy().ends_with(".json"));
-    }
-
-    #[test]
-    fn conversations_dir_wird_automatisch_erstellt() {
-        let tmp = TempDir::new().unwrap();
-        let home = tmp.path().to_path_buf();
-        // Nur memory/ erstellen, NICHT conversations/
-        fs::create_dir_all(home.join("memory")).unwrap();
-        fs::create_dir_all(home.join(".system")).unwrap();
-
-        // load_history erstellt conversations/ automatisch
-        let _loaded = load_history(&home);
-        assert!(home.join("memory/conversations").is_dir());
     }
 }

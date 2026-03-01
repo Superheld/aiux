@@ -7,7 +7,10 @@ mod bus;
 mod config;
 mod core;
 mod events;
+mod history;
+mod home;
 mod memory;
+mod preamble;
 mod repl;
 
 use std::sync::Arc;
@@ -20,7 +23,7 @@ use crate::repl::Repl;
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let bus = Arc::new(Bus::new(1024));
-    let home = core::find_home();
+    let home = home::find_home();
 
     // Config laden
     let config = Config::load(&home)?;
