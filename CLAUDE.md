@@ -4,7 +4,8 @@
 
 Embodied AI - ein OS in dem eine KI lebt, nicht eine App auf einem OS.
 Das Linux-System ist der Koerper, der Agent lernt ihn zu spueren und zu nutzen.
-Siehe docs/PRD.md (Vision), docs/ARCHITECTURE.md (Technik), docs/ROADMAP.md (Phasen).
+Siehe docs/PRD.md (Vision), docs/ARCHITECTURE.md (Technik), docs/ROADMAP.md (Phasen),
+docs/TESTING.md (Test-Strategie).
 
 ## Aktueller Stand
 
@@ -18,7 +19,8 @@ Aber: Event-Bus steht, Code ist modular, Provider per Config steuerbar.
 - **core/src/repl.rs** - Kommandozeile (stdin/stdout ueber Bus)
 - **core/src/config.rs** - Agent-Config aus home/config.toml
 - **core/src/memory.rs** - MemoryTool (write/read/list auf context/)
-- **home/config.toml** - Provider, Modell, Temperature
+- **home/config.toml** - Provider, Modell, Temperature, compact_threshold
+- **home/.system/** - Interne Prompts (compact-preamble.md)
 - **home/memory/** - soul.md, user.md, context/, conversation-*.json
 - **nerve/** - Platzhalter, nicht implementiert
 
@@ -34,6 +36,10 @@ Aber: Event-Bus steht, Code ist modular, Provider per Config steuerbar.
 - **Rollen:** Parallele Agent-Instanzen mit eigener Config/Memory. Main ist der Boss.
 - **Tools sind Rust-Code im Core.** Kein Plugin-System. Kommt spaeter.
 - **Preamble = soul.md + user.md + role.md + context/*.md.** Reihenfolge ist wichtig.
+- **Events:** Alle Kommunikation ueber den Bus. SystemMessage fuer Info an den User.
+- **Kompaktifizierung:** History wird bei Token-Budget automatisch zusammengefasst (compact_threshold).
+- **simple_chat():** Interner LLM-Call ohne Streaming/Tools (fuer Kompaktifizierung etc.).
+- **Testing:** LLM wird gemockt (eigenes MockModel), Filesystem mit tempdir. Siehe docs/TESTING.md.
 
 ## Coding-Regeln
 
