@@ -16,6 +16,12 @@ pub struct AgentConfig {
     pub temperature: f64,
     /// Env-Variable fuer den API-Key. Falls nicht gesetzt, wird der Default pro Provider genutzt.
     pub api_key_env: Option<String>,
+    /// Context-Window Override (in Tokens). Wenn nicht gesetzt, wird anhand des Modells geschaetzt.
+    #[serde(default)]
+    pub context_window: Option<u64>,
+    /// Kompaktifizierungs-Schwelle in Prozent (0 = aus). Default: 80.
+    #[serde(default)]
+    pub compact_threshold: Option<u64>,
 }
 
 fn default_temperature() -> f64 {
