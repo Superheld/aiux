@@ -62,8 +62,27 @@ graph LR
   Core -->|Tool-Use| Mem[MemoryTool]
 ```
 
-Gebaut und lauffaehig: REPL, Core mit Streaming, MemoryTool, Preamble-Assembly,
-Conversation-Persistenz, Kompaktifizierung. Kein Daemon, keine Nerves, ein Agent.
+Gebaut und lauffaehig: REPL, Core mit Streaming, MemoryTool,
+Conversation-Persistenz, Kompaktifizierung. Kein Daemon, keine Nerves, zwei Agents.
+
+---
+
+## Agents
+
+Zwei eigenstaendige rig-Agents, NICHT verschachtelt (kein Sub-Agent per `.tool()`).
+
+| Agent | Datei | Preamble | Tools | History | Ausloeser |
+|-------|-------|----------|-------|---------|-----------|
+| **Cortex** (Grosshirn) | `agent/cortex.rs` | soul + user + shortterm | soul, user, memory | ja, mit Streaming | User-Input via Bus |
+| **Hippocampus** | `agent/hippocampus.rs` | compact-preamble.md | soul, user, memory | nein (leere `vec![]`) | Rust-Code (Schwellwert, /clear, /quit) |
+
+Der Cortex ist der einzige Agent der auf dem Bus lauscht. Der Hippocampus wird
+vom Cortex per Rust-Aufruf gestartet - das LLM entscheidet NICHT selbst
+wann der Hippocampus laeuft, das steuert der Code.
+
+Aufgaben des Hippocampus:
+- **Kompaktifizierung** (`compact_history`): Token-Schwellwert erreicht → Wissen destillieren, History kuerzen
+- **Memory-Flush** (`memory_flush`): Bei /clear und /quit → Wissen sichern ohne History zu kuerzen
 
 ---
 
@@ -150,7 +169,7 @@ temperature = 0.7
 flowchart TD
   A[soul.md] --> P[Preamble]
   B[user.md] --> P
-  C["context/*.md\n(alphabetisch)"] --> P
+  C[shortterm.md] --> P
   P --> Core
   H["conversations/\nconversation-YYYY-MM-DD.json"] --> Core
   Config[".system/config.toml"] --> Core
@@ -164,7 +183,7 @@ Spaetere Erweiterungen: skills/*.md, environment.md.
 
 | Typ | Format | Lebensdauer |
 |-----|--------|-------------|
-| **Kurzzeit** | context/*.md | Permanent, vom Agent verwaltet (MemoryTool) |
+| **Kurzzeit** | shortterm.md | Permanent, vom Agent verwaltet (MemoryTool) |
 | **Konversation** | conversations/conversation-YYYY-MM-DD.json | Pro Tag |
 | **Langzeit** | SQLite + RAG (geplant) | Permanent, durchsuchbar |
 
@@ -191,17 +210,24 @@ Preamble pro Rolle: `soul + user + role + role-memory + role-context`.
 ```
 aiux/
 ├── core/src/
-│   ├── main.rs          # Verdrahtung
-│   ├── core.rs          # Gehirn (Provider-Factory, Agent)
-│   ├── config.rs        # Config laden
-│   ├── preamble.rs      # System-Prompt Assembly
-│   ├── history.rs       # Conversation-Persistenz, Kompaktifizierung
-│   ├── home.rs          # home/-Verzeichnis finden
-│   ├── events.rs        # Event-Typen
-│   ├── bus.rs           # Event-Bus (broadcast)
-│   ├── repl.rs          # Kommandozeile
-│   └── memory.rs        # MemoryTool
-├── nerve/               # Platzhalter
+│   ├── main.rs              # Verdrahtung
+│   ├── config.rs            # Config laden
+│   ├── history.rs           # Conversation-Persistenz, Kompaktifizierungs-Schwellwert
+│   ├── home.rs              # home/-Verzeichnis finden
+│   ├── repl.rs              # Kommandozeile
+│   ├── agent/
+│   │   ├── mod.rs           # Modul-Einstiegspunkt (re-exports)
+│   │   ├── cortex.rs        # Cortex-Agent (Grosshirn)
+│   │   └── hippocampus.rs   # Hippocampus-Agent (Gedaechtnis)
+│   ├── bus/
+│   │   ├── mod.rs           # Event-Bus (broadcast)
+│   │   └── events.rs        # Event-Typen
+│   └── tools/
+│       ├── mod.rs           # Tool-Registry
+│       ├── soul.rs          # SoulTool
+│       ├── user.rs          # UserTool
+│       └── memory.rs        # MemoryTool
+├── nerve/                   # Platzhalter
 ├── home/
 │   ├── .system/
 │   │   ├── config.toml
@@ -209,7 +235,7 @@ aiux/
 │   ├── memory/
 │   │   ├── soul.md
 │   │   ├── user.md
-│   │   ├── context/
+│   │   ├── shortterm.md
 │   │   └── conversations/  # .gitignore
 │   ├── skills/              # Platzhalter
 │   └── tools/               # Platzhalter
@@ -221,7 +247,7 @@ aiux/
 ```
 /home/claude/
 ├── .system/config.toml
-├── memory/{soul.md, user.md, context/, conversations/}
+├── memory/{soul.md, user.md, shortterm.md, conversations/}
 ├── skills/
 └── tools/
 ```
@@ -272,7 +298,7 @@ aiux/
 Eingebaute Patterns:
 - **Factory** - Agent-Erstellung anhand Config (Provider-Typ bleibt intern)
 - **Repository** - MemoryTool abstrahiert Speicherzugriff
-- **Composite** - Preamble aus Teilen zusammengebaut (soul + user + context)
+- **Composite** - Preamble aus Teilen zusammengebaut (soul + user + shortterm)
 - **Command** - Tool-Calls als serialisierte Command-Objekte
 
 ---

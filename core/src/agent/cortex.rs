@@ -1,8 +1,7 @@
-// Core: Das Gehirn des Agents.
+// Cortex: Das Grosshirn.
 //
-// Kapselt die Preamble, History und Tools.
-// Hoert auf UserInput Events und antwortet mit ResponseToken/ResponseComplete.
-// Der LLM-Client wird per Config gesteuert (Provider, Modell, Temperature).
+// Hoert auf UserInput Events, fragt das LLM, streamt die Antwort.
+// Einziger Agent der am Bus haengt und die History verwaltet.
 
 use std::fs;
 use std::path::PathBuf;
@@ -12,21 +11,19 @@ use std::sync::Arc;
 use futures::StreamExt;
 use rig::agent::MultiTurnStreamItem;
 use rig::client::{CompletionClient, ProviderClient};
-use rig::completion::{Chat, Usage};
+use rig::completion::Usage;
 use rig::message::Message;
 use rig::providers::{anthropic, mistral, ollama};
 use rig::streaming::{StreamedAssistantContent, StreamingChat};
 
 use crate::bus::Bus;
+use crate::bus::events::Event;
 use crate::config::Config;
-use crate::events::Event;
-use crate::history::{
-    context_window_size, conversation_path, load_history, save_history, should_compact,
-};
+use crate::history;
+use super::hippocampus;
 use crate::tools::memory::MemoryTool;
 use crate::tools::soul::SoulTool;
 use crate::tools::user::UserTool;
-use crate::preamble::{count_context_files, load_preamble};
 
 /// Macro: Streamt die Agent-Antwort und sammelt den Text.
 /// Wird pro Provider-Arm genutzt, weil jeder einen eigenen Typ erzeugt.
@@ -71,7 +68,19 @@ macro_rules! stream_agent {
     }};
 }
 
-/// Core haelt alles was der Agent braucht.
+/// Baut den System-Prompt aus den drei Memory-Dateien zusammen.
+fn load_preamble(home: &std::path::Path) -> String {
+    let mut parts = Vec::new();
+    for file in ["memory/soul.md", "memory/user.md", "memory/shortterm.md"] {
+        let content = fs::read_to_string(home.join(file)).unwrap_or_default();
+        if !content.is_empty() {
+            parts.push(content);
+        }
+    }
+    parts.join("\n\n---\n\n")
+}
+
+/// Core haelt alles was der Cortex-Agent braucht.
 pub struct Core {
     bus: Arc<Bus>,
     home: PathBuf,
@@ -85,7 +94,7 @@ pub struct Core {
 pub struct BootInfo {
     pub has_soul: bool,
     pub has_user: bool,
-    pub context_count: usize,
+    pub has_shortterm: bool,
     pub history_count: usize,
 }
 
@@ -93,26 +102,25 @@ impl Core {
     /// Neuen Core erstellen. Laedt Preamble und History.
     pub fn new(bus: Arc<Bus>, home: PathBuf, config: Config) -> Self {
         dotenvy::dotenv().ok();
-        let preamble = load_preamble(&home);
-        let history = load_history(&home);
+        let preamble_text = load_preamble(&home);
+        let hist = history::load_history(&home);
 
         Self {
             bus,
             home,
-            history,
+            history: hist,
             config,
-            preamble,
+            preamble: preamble_text,
             preamble_dirty: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Info ueber den Boot-Zustand (fuer Anzeige).
     pub fn boot_info(&self) -> BootInfo {
-        let context_count = count_context_files(&self.home);
         BootInfo {
             has_soul: self.home.join("memory/soul.md").exists(),
             has_user: self.home.join("memory/user.md").exists(),
-            context_count,
+            has_shortterm: self.home.join("memory/shortterm.md").exists(),
             history_count: self.history.len(),
         }
     }
@@ -138,7 +146,7 @@ impl Core {
                         self.bus.publish(Event::Compacted);
                     }
                     self.history.clear();
-                    fs::remove_file(conversation_path(&self.home)).ok();
+                    fs::remove_file(history::conversation_path(&self.home)).ok();
                 }
                 Ok(Event::Shutdown) => {
                     // Memory-Flush vor dem Beenden
@@ -239,20 +247,20 @@ impl Core {
         if usage.is_some() && !response_text.is_empty() {
             self.history.push(Message::user(input));
             self.history.push(Message::assistant(&response_text));
-            save_history(&self.home, &self.history);
+            history::save_history(&self.home, &self.history);
         }
 
         // Kompaktifizierung pruefen
         if let Some(ref u) = usage {
-            let window = context_window_size(&self.config.model, self.config.context_window);
+            let window = history::context_window_size(&self.config.model, self.config.context_window);
             let threshold = self.config.compact_threshold.unwrap_or(80);
-            if threshold > 0 && should_compact(u.input_tokens, window, threshold) {
+            if threshold > 0 && history::should_compact(u.input_tokens, window, threshold) {
                 self.bus.publish(Event::Compacting);
                 match self.compact_history().await {
                     Ok(summary) => {
                         self.history.push(Message::user("[KOMPAKTIFIZIERUNG]"));
                         self.history.push(Message::assistant(&summary));
-                        save_history(&self.home, &self.history);
+                        history::save_history(&self.home, &self.history);
                         self.bus.publish(Event::Compacted);
                     }
                     Err(e) => {
@@ -312,61 +320,9 @@ impl Core {
         text
     }
 
-    /// Hippocampus-Call: Destilliert Wissen aus der Konversation in Memory-Dateien.
-    /// Nutzt einen Agent mit Tools (soul, user, memory) um Wichtiges zu speichern.
-    /// Gibt die Zusammenfassung als Text zurueck.
+    /// Hippocampus-Call: Delegiert an den Hippocampus-Agent.
     async fn hippocampus_call(&self, prompt: &str) -> Result<String, anyhow::Error> {
-        let preamble = fs::read_to_string(self.home.join(".system/compact-preamble.md"))
-            .unwrap_or_else(|_| {
-                "Du bist der Hippocampus. Destilliere Wichtiges aus der Konversation \
-                 und speichere es ueber die Tools. Fasse den Rest zusammen."
-                    .to_string()
-            });
-
-        let soul_tool = SoulTool::new(&self.home, Arc::clone(&self.preamble_dirty));
-        let user_tool = UserTool::new(&self.home, Arc::clone(&self.preamble_dirty));
-        let memory_tool = MemoryTool::new(&self.home, Arc::clone(&self.preamble_dirty));
-
-        match self.config.provider.as_str() {
-            "anthropic" => {
-                let client = anthropic::Client::from_env();
-                let agent = client
-                    .agent(&self.config.model)
-                    .preamble(&preamble)
-                    .temperature(0.3)
-                    .tool(soul_tool)
-                    .tool(user_tool)
-                    .tool(memory_tool)
-                    .build();
-                Ok(agent.chat(prompt, vec![]).await?)
-            }
-            "mistral" => {
-                let client = mistral::Client::from_env();
-                let agent = client
-                    .agent(&self.config.model)
-                    .preamble(&preamble)
-                    .temperature(0.3)
-                    .tool(soul_tool)
-                    .tool(user_tool)
-                    .tool(memory_tool)
-                    .build();
-                Ok(agent.chat(prompt, vec![]).await?)
-            }
-            "ollama" => {
-                let client: ollama::Client = ollama::Client::new(rig::client::Nothing)
-                    .map_err(|e| anyhow::anyhow!("Ollama-Client: {}", e))?;
-                let agent = client
-                    .agent(&self.config.model)
-                    .preamble(&preamble)
-                    .temperature(0.3)
-                    .tool(soul_tool)
-                    .tool(user_tool)
-                    .tool(memory_tool)
-                    .build();
-                Ok(agent.chat(prompt, vec![]).await?)
-            }
-            other => anyhow::bail!("Unbekannter Provider: '{}'", other),
-        }
+        hippocampus::hippocampus_call(&self.home, &self.config, &self.preamble_dirty, prompt).await
     }
 
     /// Fuehrt einen Kompaktifizierungs-Call durch.
@@ -402,7 +358,7 @@ mod tests {
     fn test_home() -> (TempDir, PathBuf) {
         let tmp = TempDir::new().unwrap();
         let home = tmp.path().to_path_buf();
-        fs::create_dir_all(home.join("memory/context")).unwrap();
+        fs::create_dir_all(home.join("memory")).unwrap();
         fs::create_dir_all(home.join("memory/conversations")).unwrap();
         fs::create_dir_all(home.join(".system")).unwrap();
         (tmp, home)
@@ -525,13 +481,13 @@ mod tests {
         let (_tmp, home) = test_home();
         fs::write(home.join("memory/soul.md"), "Soul").unwrap();
         fs::write(home.join("memory/user.md"), "User").unwrap();
-        fs::write(home.join("memory/context/a.md"), "A").unwrap();
+        fs::write(home.join("memory/shortterm.md"), "Notizen").unwrap();
 
         let core = test_core(home);
         let info = core.boot_info();
         assert!(info.has_soul);
         assert!(info.has_user);
-        assert_eq!(info.context_count, 1);
+        assert!(info.has_shortterm);
     }
 
     #[test]
@@ -541,7 +497,7 @@ mod tests {
         let info = core.boot_info();
         assert!(!info.has_soul);
         assert!(!info.has_user);
-        assert_eq!(info.context_count, 0);
+        assert!(!info.has_shortterm);
         assert_eq!(info.history_count, 0);
     }
 }

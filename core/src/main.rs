@@ -3,21 +3,19 @@
 // main.rs ist nur der Verdrahter:
 // Bus erstellen, Module anschliessen, laufen lassen.
 
+mod agent;
 mod bus;
 mod config;
-mod core;
-mod events;
 mod history;
 mod home;
-mod preamble;
-mod tools;
 mod repl;
+mod tools;
 
 use std::sync::Arc;
 
 use crate::bus::Bus;
 use crate::config::Config;
-use crate::core::Core;
+use crate::agent::Core;
 use crate::repl::Repl;
 
 #[tokio::main]

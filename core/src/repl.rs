@@ -8,8 +8,8 @@ use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use crate::bus::Bus;
-use crate::core::BootInfo;
-use crate::events::Event;
+use crate::agent::BootInfo;
+use crate::bus::events::Event;
 
 /// REPL - Read-Eval-Print-Loop als Event-Teilnehmer.
 pub struct Repl {
@@ -26,9 +26,7 @@ impl Repl {
         println!("AIUX v0.1.0");
         if info.has_soul { println!("  [+] soul.md"); }
         if info.has_user { println!("  [+] user.md"); }
-        if info.context_count > 0 {
-            println!("  [+] {} Context-Datei(en)", info.context_count);
-        }
+        if info.has_shortterm { println!("  [+] shortterm.md"); }
         println!("  [+] Tools: soul, user, memory");
         if info.history_count > 0 {
             println!("  [+] {} History-Nachrichten", info.history_count);
