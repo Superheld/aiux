@@ -1,10 +1,63 @@
 # AIUX - Architektur
 
-> Wie AIUX gebaut ist. Tech-Stack, Abhaengigkeiten, Plattformen.
+> Wie AIUX gebaut ist und gebaut werden soll.
+> Aktueller Stand und Zielbild - klar getrennt.
 
 ---
 
-## Ueberblick
+## Leitprinzip: Event-Driven Architecture
+
+AIUX ist ein event-getriebenes System. Alles was den Core erreicht, kommt als Event.
+Alles was der Core tut, erzeugt Events. Der MQTT-Bus ist das Nervensystem.
+
+```
+Wahrnehmung (Nerve)  ->  Event auf Bus  ->  Core denkt  ->  Handlung (Tool)
+```
+
+**Aktueller Stand:** Noch nicht event-driven. Der Core ist eine synchrone REPL
+(stdin -> LLM -> stdout). Die Event-Architektur kommt mit Phase 6 (MQTT-Bus).
+Der Code sollte aber schon jetzt so strukturiert werden, dass Input als
+Abstraktion behandelt wird - nicht als hartcodiertes stdin.
+
+---
+
+## Design Patterns
+
+Patterns die wir bewusst einsetzen (nicht was Frameworks mitbringen):
+
+### Eingebaut
+
+| Pattern | Wo | Was es tut |
+|---------|----|------------|
+| **Repository** | MemoryTool | Abstrahiert Speicherzugriff. Agent sagt "merke dir X", nicht "schreib Datei Y". Backend austauschbar. |
+| **Composite** | Preamble Assembly | System-Prompt aus Teilen zusammengebaut (soul + user + context). Neue Teile koennen dazukommen. |
+| **Command** | Tool-Use | Jeder Tool-Call ist ein serialisiertes Command-Objekt (action + parameter). Neue Tools = neue Commands. |
+
+### Geplant
+
+| Pattern | Wann | Was es tut |
+|---------|------|------------|
+| **Observer** | Phase 6 | Nerves beobachten passiv, melden nur Relevantes. |
+| **Publish/Subscribe** | Phase 6 | Nerves publishen, Core subscribt. Entkoppelt ueber MQTT. |
+| **Mediator** | Phase 6 | Der Bus vermittelt. Komponenten kennen nur den Bus, nicht einander. |
+| **Strategy** | Phase 6 | Jeder Nerve hat gleiche Schnittstelle, eigene Beobachtungs-Strategie. |
+
+### Biologische Metaphern als Architektur
+
+Die Metaphern sind nicht Deko - sie SIND die Architektur-Entscheidungen:
+
+| Metapher | Pattern | Konsequenz |
+|----------|---------|------------|
+| Sinne (Nerves) | Observer | Passiv, filternd, dauerhaft |
+| Nervensystem (Bus) | Pub/Sub + Mediator | Entkoppelt, asynchron |
+| Gedaechtnis (Memory) | Repository | Abstrahiert, erweiterbar |
+| Seele (soul.md) | Configuration as Identity | Persoenlichkeit = Konfiguration |
+| Haende (Tools) | Command | Ausfuehrung als Objekt |
+| Rhythmen (Scheduler) | Scheduled Jobs | Puls, Atem, Tagesrueckblick |
+
+---
+
+## Ueberblick (Zielbild)
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -19,13 +72,14 @@
 │  - Anthropic Claude (API)                        │
 │  - Streaming, Tool-Use, Function Calling         │
 │  - soul.md als System-Prompt (Preamble)          │
-│  - user.md + journal als Kontext                 │
+│  - user.md + context als Kontext                 │
 │                                                  │
 │  Scheduler (tokio-cron-scheduler)                │
 │  - Puls (5 Min), Atem (1h), Tag, Woche          │
 │                                                  │
 │  Memory                                          │
 │  - Kurzzeit: Markdown-Dateien (context/)         │
+│  - Konversation: JSON pro Tag                    │
 │  - Langzeit: SQLite + RAG (rig-sqlite)           │
 │                                                  │
 │  Bus-Client (rumqttc)                            │
@@ -33,9 +87,8 @@
 │  - Events empfangen, verarbeiten, reagieren      │
 │                                                  │
 │  Tools (rig Tool-Use)                            │
-│  - Native Rust Tools                             │
+│  - Native Rust Tools (hardcoded im Core)         │
 │  - Shell-Execution                               │
-│  - MCP-Server (spaeter)                          │
 └──────────────────┬───────────────────────────────┘
                    │ MQTT publish/subscribe
                    │
@@ -72,65 +125,108 @@
 
 ---
 
-## Tech-Stack
+## Aktueller Stand (nach Phase 4.3)
 
-### Core
+Was tatsaechlich gebaut und lauffaehig ist:
 
-| Crate | Version | Was | Warum |
-|-------|---------|-----|-------|
-| **rig-core** | 0.31 | LLM Framework | Anthropic, Streaming, Tool-Use, RAG |
-| **rig-sqlite** | - | Vector Store | SQLite + sqlite-vec, kein Server |
-| **rumqttc** | 0.24 | MQTT Client | Pure Rust, Tokio-nativ |
-| **tokio** | 1 | Async Runtime | Standard |
-| **tokio-cron-scheduler** | 0.13 | Scheduler | Rhythmen (Puls/Atem/Tag/Woche) |
-| **serde** + **serde_json** | 1 | Serialisierung | Standard |
-| **pulldown-cmark** | 0.12 | Markdown Parser | soul.md, journal, skills |
+```
+┌──────────────────────────────────────────────────┐
+│  aiux-core (REPL, kein Daemon)                    │
+│                                                   │
+│  LLM-Client (rig-core 0.31)                      │
+│  - Anthropic Claude (API, Streaming)              │
+│  - Tool-Use (MemoryTool)                          │
+│                                                   │
+│  Preamble (Boot-Sequence)                         │
+│  - soul.md -> user.md -> context/*.md             │
+│                                                   │
+│  Memory                                           │
+│  - Kurzzeit: context/*.md (Agent liest/schreibt)  │
+│  - Konversation: conversation-YYYY-MM-DD.json     │
+│                                                   │
+│  REPL                                             │
+│  - stdin -> LLM -> stdout (direkt, kein Bus)      │
+│  - Befehle: quit, exit, clear                     │
+└──────────────────────────────────────────────────┘
+```
 
-### Nerves
-
-| Crate | Was | Warum |
-|-------|-----|-------|
-| **tract-onnx** | ONNX Inference | Pure Rust, bewiesen auf Raspi |
-| **llama-cpp-2** | Lokale LLMs | Offline-Fallback (optional) |
-| **notify** | File-Watching | nerve-file |
-
-### Infrastruktur
-
-| Komponente | Was |
-|-----------|-----|
-| **Mosquitto** | MQTT Broker (Event-Bus) |
-| **SQLite** | Langzeit-Memory + Vector Store |
+**Nicht gebaut:** Bus, Nerves, Scheduler, Daemon, Gateway, Shell-Tool,
+RAG/Vector-Suche, Skills, Journal.
 
 ---
 
-## Plattformen
+## Tech-Stack
 
-AIUX ist primaer fuer Raspberry Pi gedacht, laeuft aber ueberall:
+### Eingebaut (in Cargo.toml)
 
-| Plattform | Status | Hinweise |
-|-----------|--------|----------|
-| Linux x86_64 | Unterstuetzt | Entwicklung, Server |
-| Linux aarch64 | Unterstuetzt | Raspberry Pi 4 (Primaer-Ziel) |
-| macOS Intel | Unterstuetzt | Entwicklung |
-| macOS Apple Silicon | Unterstuetzt | Entwicklung |
-| Windows x86_64 | Unterstuetzt | Entwicklung |
+| Crate | Version | Was |
+|-------|---------|-----|
+| **rig-core** | 0.31 | LLM Framework (Anthropic, Streaming, Tool-Use) |
+| **tokio** | 1 | Async Runtime |
+| **serde** + **serde_json** | 1 | Serialisierung (History, Tool-Parameter) |
+| **schemars** | 1 | JSON Schema fuer Tool-Definitionen |
+| **chrono** | 0.4 | Datum fuer taegliche History-Rotation |
+| **thiserror** | 2 | Error-Typen (MemoryTool) |
+| **anyhow** | 1 | Error-Handling (main) |
+| **futures** | 0.3 | Stream-Verarbeitung (Streaming-Ausgabe) |
+| **dotenvy** | 0.15 | .env laden (API-Key) |
 
-Alle Core-Dependencies sind Pure Rust und kompilieren fuer alle Plattformen.
+### Geplant (noch nicht in Cargo.toml)
 
-Einschraenkungen:
-- **sqlite-vec**: musl-Builds muessen getestet werden (C-Dependency)
-- **llama-cpp-2**: C++-Dependency, braucht Compiler auf dem Zielsystem
-- **Mosquitto**: Muss auf dem Zielsystem installiert sein
+| Crate | Phase | Was |
+|-------|-------|-----|
+| **rig-sqlite** | 4.4 | Vector Store (SQLite + sqlite-vec) fuer RAG |
+| **rumqttc** | 6 | MQTT Client fuer Event-Bus |
+| **tokio-cron-scheduler** | 5 | Rhythmen (Puls, Atem, Tag, Woche) |
+| **tract-onnx** | Fernziel | Lokale ONNX Inference auf Raspi |
+| **llama-cpp-2** | Fernziel | Lokale LLMs (Offline-Fallback) |
 
-### Cross-Compilation
+### Infrastruktur
 
-```bash
-# Fuer Raspberry Pi (auf dem Entwicklungsrechner)
-cargo build --release --target aarch64-unknown-linux-musl
+| Komponente | Status | Was |
+|-----------|--------|-----|
+| **Mosquitto** | geplant (Phase 6) | MQTT Broker (Event-Bus) |
+| **SQLite** | geplant (Phase 4.4) | Langzeit-Memory + Vector Store |
 
-# Lokal (Entwicklung)
-cargo build --release
+---
+
+## Boot-Sequence
+
+Beim Start des Core wird der System-Prompt (Preamble) zusammengebaut:
+
 ```
+1. soul.md        Wer bin ich? (Persoenlichkeit, Regeln, Stil)
+2. user.md        Mit wem rede ich? (Bruce, Praeferenzen)
+3. context/*.md   Was weiss ich? (Agent-Notizen, alphabetisch sortiert)
+```
+
+Danach wird die Tages-History geladen (`conversation-YYYY-MM-DD.json`).
+
+**Geplant (spaeter):**
+- journal/heute + journal/gestern in die Boot-Sequence (Phase 9)
+- skills/*.md als zusaetzlicher Kontext (Phase 8)
+- environment.md mit System-Infos (Phase 5)
+
+---
+
+## Memory-Modell
+
+Drei Speicherformen, zwei davon eingebaut:
+
+| Typ | Format | Lebensdauer | Status |
+|-----|--------|-------------|--------|
+| **Kurzzeit** | context/*.md | Permanent, vom Agent verwaltet | eingebaut |
+| **Konversation** | conversation-YYYY-MM-DD.json | Pro Tag, REPL-History | eingebaut |
+| **Langzeit** | SQLite + RAG (rig-sqlite) | Permanent, durchsuchbar | geplant (Phase 4.4) |
+
+**Kurzzeit:** Der Agent schreibt/liest hier ueber das MemoryTool (write/read/list).
+Wird beim naechsten Start als Teil der Preamble geladen.
+
+**Konversation:** Automatisch gespeichert nach jedem Turn. Pro Tag eine neue Datei.
+Beim Start wird nur der heutige Tag geladen. `clear` loescht den heutigen Tag.
+
+**Langzeit:** Noch nicht gebaut. Soll semantische Suche ueber alle Erinnerungen
+ermoeglichen (Embeddings + Vektor-Suche statt alles in den Preamble zu laden).
 
 ---
 
@@ -140,49 +236,53 @@ cargo build --release
 
 ```
 aiux/
-├── core/                # aiux-core (Rust Daemon)
+├── core/                  # aiux-core
+│   ├── Cargo.toml
+│   └── src/
+│       ├── main.rs        # REPL, Boot-Sequence, History
+│       └── memory.rs      # MemoryTool (Tool-Use)
+├── nerve/                 # aiux-nerve (Platzhalter, nicht implementiert)
 │   ├── Cargo.toml
 │   └── src/main.rs
-├── nerve/               # aiux-nerve (Rust)
-│   ├── Cargo.toml
-│   └── src/main.rs
-├── home/                # Agent-Home (wird deployed)
+├── home/                  # Agent-Home (wird deployed)
 │   ├── memory/
-│   │   ├── soul.md      # Persoenlichkeit (= System-Prompt)
-│   │   ├── user.md      # Wissen ueber den Menschen
-│   │   ├── context/     # Kurzzeit (Laufzeit)
-│   │   └── journal/     # Lerntagebuch (Laufzeit)
-│   ├── skills/          # Expertise als Markdown
-│   └── tools/           # Tool-Definitionen
-├── build/               # Alpine Image-Build Config
-├── scripts/             # deploy.sh
-├── docs/                # PRD, Architektur, Roadmap
-├── Cargo.toml           # Workspace
+│   │   ├── soul.md        # Persoenlichkeit (= System-Prompt)
+│   │   ├── user.md        # Wissen ueber den Menschen
+│   │   └── context/       # Agent-Notizen (Laufzeit, vom Agent beschreibbar)
+│   ├── skills/            # Expertise als Markdown (geplant, Phase 8)
+│   └── tools/             # Tool-Definitionen (geplant, Fernziel)
+├── scripts/
+│   ├── install.sh         # System-Installer
+│   └── deploy.sh          # home/ auf Raspi deployen
+├── docs/                  # PRD, Architektur, Roadmap
+├── Cargo.toml             # Workspace
 └── README.md
 ```
 
-### Auf dem Zielsystem
+Laufzeit-Dateien (nicht im Repo, in .gitignore):
+- `home/memory/conversation-*.json` - Tages-History
+
+### Auf dem Zielsystem (Zielbild)
 
 ```
-/home/claude/                    # Agent-Home
+/home/claude/
 ├── memory/
-│   ├── soul.md                  # Persoenlichkeit (wächst mit der Zeit)
+│   ├── soul.md                  # Persoenlichkeit
 │   ├── user.md                  # Wissen ueber den Menschen
-│   ├── context/                 # Kurzzeit-Gedaechtnis
-│   ├── journal/                 # Lerntagebuch (YYYY-MM-DD.md)
-│   └── memory.db               # Langzeit (SQLite + Vektoren)
-├── skills/                      # Expertise
-├── tools/                       # Tool-Definitionen
-└── nerves/                      # Nerve-Programme + Configs
+│   ├── context/                 # Agent-Notizen
+│   ├── conversation-*.json      # Tages-History
+│   ├── journal/                 # Lerntagebuch (geplant, Phase 9)
+│   └── memory.db               # Langzeit-SQLite (geplant, Phase 4.4)
+├── skills/                      # Expertise (geplant, Phase 8)
+└── nerves/                      # Nerve-Programme (geplant, Phase 6)
     └── <name>/
-        ├── nerve.toml           # Config
-        ├── <binary>             # Nerve-Programm
-        └── model.onnx           # Optional: lokales Modell
+        ├── nerve.toml
+        └── <binary>
 ```
 
 ---
 
-## Bus-Protokoll
+## Bus-Protokoll (geplant, Phase 6)
 
 MQTT Topics:
 
@@ -212,14 +312,29 @@ Prioritaeten:
 
 ---
 
-## Session-Modell
+## Plattformen
 
-Inspiriert von OpenClaw:
+AIUX ist primaer fuer Raspberry Pi gedacht, laeuft aber ueberall:
 
-- **Eine Main-Session** fuer Mensch + Heartbeat (geteilter Kontext)
-- **Nerve-Events** brauchen keine eigene Session (kontextbasiert)
-- **Boot-Sequence**: soul.md -> user.md -> journal/heute -> journal/gestern
-- **Heartbeat**: Periodisch, stille Bestaetigung wenn nichts los ist
+| Plattform | Status | Hinweise |
+|-----------|--------|----------|
+| Linux x86_64 | Unterstuetzt | Entwicklung, Server |
+| Linux aarch64 | Unterstuetzt | Raspberry Pi 4 (Primaer-Ziel) |
+| macOS Intel | Unterstuetzt | Entwicklung |
+| macOS Apple Silicon | Unterstuetzt | Entwicklung |
+| Windows x86_64 | Unterstuetzt | Entwicklung |
+
+Alle aktuellen Dependencies sind Pure Rust und kompilieren fuer alle Plattformen.
+
+### Cross-Compilation
+
+```bash
+# Fuer Raspberry Pi (auf dem Entwicklungsrechner)
+cargo build --release --target aarch64-unknown-linux-musl
+
+# Lokal (Entwicklung)
+cargo build --release
+```
 
 ---
 
@@ -229,8 +344,7 @@ Inspiriert von OpenClaw:
 - [tract](https://github.com/sonos/tract) - ONNX Inference
 - [rumqttc](https://github.com/bytebeamio/rumqtt) - MQTT Client
 - [sqlite-vec](https://github.com/asg017/sqlite-vec) - Vector Store
-- [OpenClaw](https://github.com/openclaw/openclaw) - Referenz-Architektur (Konzepte)
 
 ---
 
-*Letzte Aktualisierung: 2026-02-28*
+*Letzte Aktualisierung: 2026-03-01*
