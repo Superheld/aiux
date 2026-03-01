@@ -18,6 +18,8 @@ Gebaut und lauffaehig:
 - [x] MemoryTool (write/read/list auf context/)
 - [x] Conversation-Persistenz (taegliche JSON-Rotation)
 - [x] Slash-Commands (/quit, /exit, /clear)
+- [x] Kompaktifizierung (History-Zusammenfassung bei Token-Budget)
+- [x] SystemMessage Event (System-Info ueber Bus statt stderr)
 
 ---
 
@@ -25,10 +27,10 @@ Gebaut und lauffaehig:
 
 > Den direkten Draht zum Grosshirn sauber machen.
 
-- [ ] Preamble bei Aenderung neu laden (context/ aendert sich zur Laufzeit)
-- [ ] History-Limit (Token-Budget, aeltere Nachrichten abschneiden)
-- [ ] Fehlerbehandlung: API-Fehler nicht in History schreiben
-- [ ] REPL: Prompt nach Fehlern korrekt anzeigen
+- [x] Preamble bei Aenderung neu laden (dirty flag mit Arc<AtomicBool>)
+- [x] History-Limit: Kompaktifizierung bei Token-Budget (compact_threshold)
+- [x] Fehlerbehandlung: API-Fehler als SystemMessage, nicht in History
+- [x] REPL: Prompt nach Fehlern/Kompaktifizierung korrekt (Compacting/Compacted Events)
 
 ---
 
