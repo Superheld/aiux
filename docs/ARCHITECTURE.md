@@ -77,22 +77,30 @@ der Agent-Typ lebt nur innerhalb seines Tasks, nach aussen gibt es nur Events.
 
 ### Config-Struktur
 
-```toml
-# home/config.toml
+Zwei Ebenen: System-Config (geteilt) und Rollen-Config (pro Rolle).
 
-[agents.main]
+```toml
+# home/config.toml - Systemebene
+# Definiert verfuegbare Provider. API-Keys kommen aus Env-Variablen.
+
+[providers.anthropic]
+api_key_env = "ANTHROPIC_API_KEY"
+
+[providers.mistral]
+api_key_env = "MISTRAL_API_KEY"
+
+[providers.ollama]
+# Kein API-Key noetig, laeuft lokal
+```
+
+```toml
+# home/roles/main/config.toml - Rollenebene
 provider = "anthropic"
 model = "claude-sonnet-4-5-20250929"
 temperature = 0.7
-
-[agents.vision]
-provider = "mistral"
-model = "mistral-large-latest"
-api_key_env = "MISTRAL_API_KEY"
 ```
 
-Jeder Agent hat einen eigenen Config-Eintrag mit Provider und Modell.
-Sub-Agents (z.B. Vision-Nerve) bekommen eigene Eintraege.
+Jede Rolle waehlt aus den verfuegbaren Providern.
 Der Agent wird zur Laufzeit aus den Zutaten (Client + Preamble + Tools) gebaut -
 Aenderungen an der Config erfordern kein Rekompilieren.
 
@@ -129,44 +137,74 @@ Kommunikation zwischen Rollen laeuft ueber den Bus:
 - Eine Rolle kann Feedback an `main` geben ("Ich brauche Zugriff auf X")
 - `main` entscheidet, delegiert, koordiniert
 
-### Beispiel
+### Beispiel: Sysadmin-Rolle
 
-```
-main (Gehirn, Anthropic Claude)
-  ├── assistent (Rolle, Anthropic Claude)
-  │     Config: gleicher Provider, eigener Memory
-  │     Nerves: nerve-input (REPL/Gateway)
-  │
-  ├── maler (Rolle, Mistral/Ollama)
-  │     Config: anderer Provider, eigener Memory
-  │     Nerves: nerve-vision, nerve-file
-  │
-  └── sysadmin (Rolle, Anthropic Claude)
-        Config: gleicher Provider, eigener Memory
-        Nerves: nerve-system, nerve-log, nerve-net
+Der Sysadmin laeuft dauerhaft im Hintergrund. Braucht kein grosses Modell -
+ein kleines lokales (Ollama) reicht. Hoert auf System-Nerves, meldet sich
+nur bei `main` wenn es relevant ist.
+
+```toml
+# roles/sysadmin/config.toml
+provider = "ollama"
+model = "qwen2.5:7b"
+temperature = 0.3
+nerves = ["nerve-system", "nerve-log", "nerve-net"]
 ```
 
-Jede Rolle laeuft als eigener Task mit eigenem Agent.
-Der Bus verbindet alles. Der Mensch kann mit jeder Rolle direkt sprechen,
-oder `main` entscheidet wer antwortet.
+```toml
+# roles/main/config.toml
+provider = "anthropic"
+model = "claude-sonnet-4-5-20250929"
+temperature = 0.7
+```
 
-### Konsequenz fuer Config und Verzeichnisse
+Typischer Ablauf:
+1. `sysadmin` erkennt ueber `nerve-system`: Disk 90% voll
+2. Publiziert Event auf den Bus: "Warnung: Disk 90% voll"
+3. `main` entscheidet: Bruce stoeren oder selbst handeln?
+4. `main` delegiert an `sysadmin`: "Loesch die alten Logs"
+5. `sysadmin` fuehrt aus und meldet Ergebnis
+
+Der Mensch merkt davon nichts - ausser `main` entscheidet dass es wichtig ist.
+
+### Rollenwechsel im Terminal
+
+Eine REPL, mehrere Rollen. Der Prompt zeigt die aktive Rolle:
+
+```
+main> hallo
+AIUX: hey, was gibt's?
+
+main> /role assistent
+assistent> hilf mir bei X
+AIUX: klar, ...
+
+assistent> /role main
+main> /roles
+  * main        (aktiv)
+    assistent   (laeuft)
+    sysadmin    (laeuft)
+```
+
+Technisch: Die REPL hat einen "aktive Rolle" State und taggt
+`UserInput` Events mit der Rolle. Nur der angesprochene Core antwortet.
+Hintergrund-Rollen laufen weiter auf ihren Nerves.
+
+### Config-Trennung
 
 Die Systemkonfiguration (Provider, API-Keys) gehoert nicht in den
-Arbeitsbereich einer Rolle. Die Trennung:
+Arbeitsbereich einer Rolle. Zwei Ebenen:
 
-- **Systemebene** - Provider, API-Keys, Bus-Config (geteilt)
-- **Rollenebene** - Modell, Temperature, Nerves, Memory (pro Rolle)
-- **Identitaet** - soul.md, user.md (geteilt, immer geladen)
+- **Systemebene** (`home/config.toml`) - Provider-Definitionen, API-Keys
+- **Rollenebene** (`home/roles/<name>/config.toml`) - Modell, Temperature, Nerves
 
-Wie genau die Verzeichnisstruktur aussieht, wird entschieden wenn
-die erste Rolle neben `main` entsteht.
+Die Identitaet (soul.md, user.md) wird immer geladen, unabhaengig von der Rolle.
 
-### Conversations sind kein Rollen-Konzept
+### Conversations sind pro Rolle
 
-Conversations (conversation-*.json) sind reines Log - Tages-History
-damit der Agent weiss wo er aufgehoert hat. Sie gehoeren nicht zu einer
-Rolle, sondern sind ein technisches Detail der Kontextverwaltung.
+Conversations (conversation-*.json) sind Tages-History pro Rolle.
+Jede Rolle hat ihre eigenen Gespraeche - wenn der Mensch mit dem
+Assistenten redet, ist das ein anderer Kontext als mit `main`.
 
 ---
 
@@ -387,12 +425,19 @@ aiux/
 │   ├── Cargo.toml
 │   └── src/main.rs
 ├── home/                  # Agent-Home (wird deployed)
+│   ├── config.toml        # System-Config (Provider, API-Keys)
 │   ├── memory/
-│   │   ├── soul.md        # Persoenlichkeit (= System-Prompt)
-│   │   ├── user.md        # Wissen ueber den Menschen
-│   │   └── context/       # Agent-Notizen (Laufzeit, vom Agent beschreibbar)
-│   ├── skills/            # Expertise als Markdown (geplant, Phase 8)
-│   └── tools/             # Tool-Definitionen (geplant, Fernziel)
+│   │   ├── soul.md        # Persoenlichkeit (geteilt, immer geladen)
+│   │   └── user.md        # Wissen ueber den Menschen (geteilt)
+│   └── roles/
+│       ├── main/
+│       │   ├── config.toml    # Modell, Temperature, Nerves
+│       │   ├── role.md        # Rollenbeschreibung
+│       │   └── memory/        # Rollen-Memory (context/*.md)
+│       └── <weitere>/
+│           ├── config.toml
+│           ├── role.md
+│           └── memory/
 ├── scripts/
 │   ├── install.sh         # System-Installer
 │   └── deploy.sh          # home/ auf Raspi deployen
@@ -402,20 +447,30 @@ aiux/
 ```
 
 Laufzeit-Dateien (nicht im Repo, in .gitignore):
-- `home/memory/conversation-*.json` - Tages-History
+- `home/roles/*/conversation-*.json` - Tages-History pro Rolle
 
 ### Auf dem Zielsystem (Zielbild)
 
 ```
 /home/claude/
+├── config.toml                  # System-Config (Provider)
 ├── memory/
-│   ├── soul.md                  # Persoenlichkeit
-│   ├── user.md                  # Wissen ueber den Menschen
-│   ├── context/                 # Agent-Notizen
-│   ├── conversation-*.json      # Tages-History
-│   ├── journal/                 # Lerntagebuch (geplant, Phase 9)
-│   └── memory.db               # Langzeit-SQLite (geplant, Phase 4.4)
-├── skills/                      # Expertise (geplant, Phase 8)
+│   ├── soul.md                  # Persoenlichkeit (geteilt)
+│   ├── user.md                  # Wissen ueber den Menschen (geteilt)
+│   └── memory.db               # Langzeit-SQLite (geplant)
+├── roles/
+│   ├── main/
+│   │   ├── config.toml          # Modell, Temperature
+│   │   ├── role.md              # Rollenbeschreibung
+│   │   ├── memory/              # Rollen-Context
+│   │   └── conversation-*.json  # Tages-History
+│   ├── sysadmin/
+│   │   ├── config.toml          # Ollama, kleines Modell
+│   │   ├── role.md
+│   │   ├── memory/
+│   │   └── conversation-*.json
+│   └── .../
+├── skills/                      # Expertise (geplant)
 └── nerves/                      # Nerve-Programme (geplant, Phase 6)
     └── <name>/
         ├── nerve.toml

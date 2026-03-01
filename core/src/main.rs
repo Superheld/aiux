@@ -19,7 +19,7 @@ use crate::repl::Repl;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let bus = Arc::new(Bus::new(64));
+    let bus = Arc::new(Bus::new(1024));
     let home = core::find_home();
 
     // Config laden
