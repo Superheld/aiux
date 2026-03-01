@@ -3,7 +3,7 @@
 // Drei spezialisierte Memory-Tools:
 // - SoulTool: Identitaet und Persoenlichkeit (soul.md)
 // - UserTool: Wissen ueber den Menschen (user.md)
-// - MemoryTool: Arbeitsnotizen und Langzeitgedaechtnis (context/*.md)
+// - MemoryTool: Kurzzeitgedaechtnis (shortterm.md)
 
 pub mod memory;
 pub mod soul;
@@ -32,7 +32,7 @@ pub struct ToolError(pub String);
 /// Gemeinsame Argumente fuer alle drei Tools.
 #[derive(Deserialize, JsonSchema)]
 pub struct ToolArgs {
-    /// Aktion: "read", "write", "edit", "append" (+ "list" nur bei memory)
+    /// Aktion: "read", "write", "edit", "append"
     pub action: String,
     /// Inhalt (bei write: kompletter neuer Inhalt, bei append: anzufuegender Text)
     #[serde(default)]

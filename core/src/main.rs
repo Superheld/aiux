@@ -8,7 +8,6 @@ mod bus;
 mod config;
 mod history;
 mod home;
-mod preamble;
 mod repl;
 mod tools;
 

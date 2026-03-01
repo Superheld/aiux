@@ -20,7 +20,6 @@ use crate::bus::Bus;
 use crate::bus::events::Event;
 use crate::config::Config;
 use crate::history;
-use crate::preamble;
 use super::hippocampus;
 use crate::tools::memory::MemoryTool;
 use crate::tools::soul::SoulTool;
@@ -69,6 +68,18 @@ macro_rules! stream_agent {
     }};
 }
 
+/// Baut den System-Prompt aus den drei Memory-Dateien zusammen.
+fn load_preamble(home: &std::path::Path) -> String {
+    let mut parts = Vec::new();
+    for file in ["memory/soul.md", "memory/user.md", "memory/shortterm.md"] {
+        let content = fs::read_to_string(home.join(file)).unwrap_or_default();
+        if !content.is_empty() {
+            parts.push(content);
+        }
+    }
+    parts.join("\n\n---\n\n")
+}
+
 /// Core haelt alles was der Cortex-Agent braucht.
 pub struct Core {
     bus: Arc<Bus>,
@@ -83,7 +94,7 @@ pub struct Core {
 pub struct BootInfo {
     pub has_soul: bool,
     pub has_user: bool,
-    pub context_count: usize,
+    pub has_shortterm: bool,
     pub history_count: usize,
 }
 
@@ -91,7 +102,7 @@ impl Core {
     /// Neuen Core erstellen. Laedt Preamble und History.
     pub fn new(bus: Arc<Bus>, home: PathBuf, config: Config) -> Self {
         dotenvy::dotenv().ok();
-        let preamble_text = preamble::load_preamble(&home);
+        let preamble_text = load_preamble(&home);
         let hist = history::load_history(&home);
 
         Self {
@@ -106,11 +117,10 @@ impl Core {
 
     /// Info ueber den Boot-Zustand (fuer Anzeige).
     pub fn boot_info(&self) -> BootInfo {
-        let context_count = preamble::count_context_files(&self.home);
         BootInfo {
             has_soul: self.home.join("memory/soul.md").exists(),
             has_user: self.home.join("memory/user.md").exists(),
-            context_count,
+            has_shortterm: self.home.join("memory/shortterm.md").exists(),
             history_count: self.history.len(),
         }
     }
@@ -166,7 +176,7 @@ impl Core {
     async fn handle_input(&mut self, input: &str) -> Result<(), anyhow::Error> {
         // Preamble nur neu laden wenn sich context/ geaendert hat (dirty flag vom MemoryTool)
         if self.preamble_dirty.swap(false, Ordering::Relaxed) {
-            self.preamble = preamble::load_preamble(&self.home);
+            self.preamble = load_preamble(&self.home);
         }
 
         let soul_tool = SoulTool::new(&self.home, Arc::clone(&self.preamble_dirty));
@@ -348,7 +358,7 @@ mod tests {
     fn test_home() -> (TempDir, PathBuf) {
         let tmp = TempDir::new().unwrap();
         let home = tmp.path().to_path_buf();
-        fs::create_dir_all(home.join("memory/context")).unwrap();
+        fs::create_dir_all(home.join("memory")).unwrap();
         fs::create_dir_all(home.join("memory/conversations")).unwrap();
         fs::create_dir_all(home.join(".system")).unwrap();
         (tmp, home)
@@ -471,13 +481,13 @@ mod tests {
         let (_tmp, home) = test_home();
         fs::write(home.join("memory/soul.md"), "Soul").unwrap();
         fs::write(home.join("memory/user.md"), "User").unwrap();
-        fs::write(home.join("memory/context/a.md"), "A").unwrap();
+        fs::write(home.join("memory/shortterm.md"), "Notizen").unwrap();
 
         let core = test_core(home);
         let info = core.boot_info();
         assert!(info.has_soul);
         assert!(info.has_user);
-        assert_eq!(info.context_count, 1);
+        assert!(info.has_shortterm);
     }
 
     #[test]
@@ -487,7 +497,7 @@ mod tests {
         let info = core.boot_info();
         assert!(!info.has_soul);
         assert!(!info.has_user);
-        assert_eq!(info.context_count, 0);
+        assert!(!info.has_shortterm);
         assert_eq!(info.history_count, 0);
     }
 }
