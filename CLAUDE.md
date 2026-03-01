@@ -24,13 +24,16 @@ Aber: Event-Bus steht, Code ist modular, Provider per Config steuerbar.
 
 ## Architektur-Regeln
 
-- **EDA ist das Ziel.** Aktuell synchrone REPL, aber Code so strukturieren
-  dass Input als Abstraktion behandelt wird - nicht als hartcodiertes stdin.
-- **Koerper-Metapher ist Architektur.** Nerves = Sinne, Tools = Haende,
-  Memory = Gedaechtnis, Soul = Identitaet. Keine Deko, sondern Design-Entscheidungen.
-- **Trennung:** Core kennt keine Nerves direkt. Kommunikation nur ueber Bus (MQTT).
+- **Koerper-Architektur.** Das System ist nach biologischem Vorbild gebaut:
+  - **Grosshirn** = Core/LLM. Denkt in Sprache. Alles muss als Text ankommen.
+  - **Hippocampus** = automatisches Memory. Hoert mit, speichert unbewusst.
+  - **Nerves** = Fuehler zur Umwelt. Eigener Filter, Vorverarbeitung, melden als Text.
+  - **Tools** = Haende. Bewusste Handlungen nach aussen.
+  - **Chat** = direkter Zugang zum Grosshirn. Kein Nerve, kein Filter.
+- **Trennung:** Core kennt keine Nerves direkt. Kommunikation nur ueber Bus.
+- **Rollen:** Parallele Agent-Instanzen mit eigener Config/Memory. Main ist der Boss.
 - **Tools sind Rust-Code im Core.** Kein Plugin-System. Kommt spaeter.
-- **Preamble = soul.md + user.md + context/*.md.** Reihenfolge ist wichtig.
+- **Preamble = soul.md + user.md + role.md + context/*.md.** Reihenfolge ist wichtig.
 
 ## Coding-Regeln
 

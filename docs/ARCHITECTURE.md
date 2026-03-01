@@ -5,17 +5,88 @@
 
 ---
 
-## Leitprinzip: Event-Driven Architecture
+## Leitprinzip: Koerper-Architektur
 
-AIUX ist ein event-getriebenes System. Alles was den Core erreicht, kommt als Event.
-Alles was der Core tut, erzeugt Events. Der MQTT-Bus ist das Nervensystem.
+AIUX ist nach dem Vorbild eines Koerpers gebaut. Nicht als 1:1 Kopie des
+Menschen, sondern als Inspiration. Die Architektur spiegelt biologische
+Strukturen wider, adaptiert fuer ein System dessen Gehirn ein Sprachmodell ist.
+
+### Das Gehirn
+
+Nicht ein Gehirn, sondern Schichten - wie beim Menschen:
 
 ```
-Wahrnehmung (Nerve)  ->  Event auf Bus  ->  Core denkt  ->  Handlung (Tool)
+┌─────────────────────────────────────────┐
+│  Grosshirn (Core/Main)                  │
+│  Bewusstes Denken. Das LLM.             │
+│  Sprache, Entscheidungen, Planung.      │
+├─────────────────────────────────────────┤
+│  Hippocampus (Memory)                   │
+│  Hoert mit, speichert automatisch.      │
+│  Unbewusste Gedaechtnisbildung.         │
+├─────────────────────────────────────────┤
+│  Hirnstamm (Scheduler)                  │
+│  Grundfunktionen, Rhythmen.             │
+│  Puls, Atem, Tagesrueckblick.           │
+└─────────────────────────────────────────┘
 ```
 
-Intern: `tokio::sync::broadcast` Channel. Extern (Nerves, Gateway): MQTT (Mosquitto).
-Siehe [EVENT-BUS.md](EVENT-BUS.md) fuer Details zu Events, Teilnehmern und Regeln.
+**Grosshirn** = der Core. Ein Sprachmodell das denkt, spricht, entscheidet.
+Alles was das Grosshirn erreicht, muss Sprache sein - es kann keine Bilder
+sehen, keine Toene hoeren. Andere Komponenten uebersetzen fuer es.
+
+**Hippocampus** = automatische Gedaechtnisbildung. Ein kleiner Prozess der
+auf dem Bus mithoert und wichtige Dinge speichert, ohne dass das Grosshirn
+bewusst entscheiden muss. "Bruce mag keine Emojis" wird automatisch gemerkt.
+Das MemoryTool bleibt als bewusstes Aufschreiben - aber das meiste passiert
+im Hintergrund.
+
+**Hirnstamm** = Scheduler. Rhythmen die ohne bewusstes Denken laufen.
+Puls, Atem, Tagesrueckblick.
+
+### Nerves (Fuehler)
+
+Nerves sind die Endpunkte zur Umwelt. Sie sind mit Hardware oder APIs
+verbunden (Dateisystem, Netzwerk, Kamera, Mikrofon, Telegram).
+
+Jeder Nerve hat seinen **eigenen Filter** (verteilter Thalamus).
+Der Nerve entscheidet selbst was relevant ist und was nicht.
+Dafuer kann er ein eigenes kleines Modell nutzen.
+
+**Alles kommt als Sprache beim Core an.** Egal ob Kamera, Syslog oder
+Telegram - der Nerve uebersetzt in Text. Das Grosshirn ist ein
+Sprachmodell und bekommt Sprache.
+
+```
+nerve-system: "CPU bei 95%, Prozess X verbraucht am meisten"
+nerve-vision: "Bewegung erkannt, Person vor der Tuer"
+nerve-file:   "Datei config.toml wurde geaendert"
+```
+
+### Chat ist kein Nerve
+
+Wenn Bruce redet, geht das **direkt** ins Grosshirn. Chat ist kein Sensor,
+es ist bewusste Kommunikation - wie ein Gespraech von Angesicht zu Angesicht.
+Kein Filter, keine Vorverarbeitung, kein Nerve dazwischen.
+
+Chat-Zugaenge (REPL, Telegram, Web) sind **Gateways** - Kanaele ueber die
+der Mensch direkt mit dem Gehirn spricht.
+
+### Tools (Haende)
+
+Tools sind aktive Handlungen. Das Grosshirn entscheidet bewusst etwas zu tun:
+- `MemoryTool` - bewusst etwas aufschreiben
+- `MessageTool` - Nachricht senden (Telegram, etc.)
+- `ShellTool` - Befehl ausfuehren
+
+Der Nerve hoert (Eingang), das Tool handelt (Ausgang).
+Wie Ohr und Mund - verschiedene Systeme fuer verschiedene Richtungen.
+
+### Bus (Nervensystem)
+
+Der Bus verbindet alles. Intern `tokio::sync::broadcast`,
+extern MQTT (Mosquitto) fuer Nerves.
+Siehe [EVENT-BUS.md](EVENT-BUS.md) fuer Details.
 
 ---
 
@@ -234,14 +305,16 @@ Patterns die wir bewusst einsetzen (nicht was Frameworks mitbringen):
 
 Die Metaphern sind nicht Deko - sie SIND die Architektur-Entscheidungen:
 
-| Metapher | Pattern | Konsequenz |
-|----------|---------|------------|
-| Sinne (Nerves) | Observer | Passiv, filternd, dauerhaft |
-| Nervensystem (Bus) | Pub/Sub + Mediator | Entkoppelt, asynchron |
-| Gedaechtnis (Memory) | Repository | Abstrahiert, erweiterbar |
-| Seele (soul.md) | Configuration as Identity | Persoenlichkeit = Konfiguration |
-| Haende (Tools) | Command | Ausfuehrung als Objekt |
-| Rhythmen (Scheduler) | Scheduled Jobs | Puls, Atem, Tagesrueckblick |
+| Metapher | Komponente | Pattern | Konsequenz |
+|----------|-----------|---------|------------|
+| Grosshirn | Core/Main (LLM) | - | Bewusstes Denken, alles als Sprache |
+| Hippocampus | Memory (Hintergrund) | Observer | Automatisches Speichern, hoert mit |
+| Hirnstamm | Scheduler | Scheduled Jobs | Rhythmen ohne bewusstes Denken |
+| Fuehler (Nerves) | Nerves | Observer + Strategy | Vorverarbeitung, eigener Filter |
+| Nervensystem | Bus | Pub/Sub + Mediator | Entkoppelt, asynchron |
+| Haende | Tools | Command | Bewusste Handlung nach aussen |
+| Seele | soul.md | Config as Identity | Persoenlichkeit = Konfiguration |
+| Gespraech | Chat/Gateway | - | Direkter Zugang zum Grosshirn, kein Nerve |
 
 ---
 
@@ -249,65 +322,51 @@ Die Metaphern sind nicht Deko - sie SIND die Architektur-Entscheidungen:
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Gateway                                         │
-│  SSH, Telegram, Web, App (Plugin-Architektur)    │
+│  Chat (direkter Zugang zum Grosshirn)            │
+│  REPL, Telegram, Web, SSH                        │
 └──────────────────────┬──────────────────────────┘
+                       │ kein Nerve, direkt
                        │
 ┌──────────────────────▼──────────────────────────┐
-│  aiux-core (Rust Daemon)                         │
+│  aiux-core (Gehirn)                              │
 │                                                  │
-│  Agent-Factory + LLM-Client (rig-core)            │
-│  - Provider per Config (Anthropic, Mistral, ...) │
-│  - Streaming, Tool-Use, Function Calling         │
-│  - soul.md als System-Prompt (Preamble)          │
-│  - user.md + context als Kontext                 │
+│  Grosshirn (Core/Main)                           │
+│  - LLM (rig-core, Provider per Config)           │
+│  - Rollen (eigene Instanzen, eigene Config)      │
+│  - Tools (Haende: Memory, Shell, Messages)       │
 │                                                  │
-│  Scheduler (tokio-cron-scheduler)                │
+│  Hippocampus (automatisches Memory)              │
+│  - Hoert auf dem Bus mit                         │
+│  - Speichert automatisch was wichtig ist         │
+│                                                  │
+│  Hirnstamm (Scheduler)                           │
 │  - Puls (5 Min), Atem (1h), Tag, Woche          │
 │                                                  │
-│  Memory                                          │
-│  - Kurzzeit: Markdown-Dateien (context/)         │
-│  - Konversation: JSON pro Tag                    │
-│  - Langzeit: SQLite + RAG (rig-sqlite)           │
-│                                                  │
-│  Bus-Client (rumqttc)                            │
-│  - MQTT Subscribe auf aiux/nerves/*              │
-│  - Events empfangen, verarbeiten, reagieren      │
-│                                                  │
-│  Tools (rig Tool-Use)                            │
-│  - Native Rust Tools (hardcoded im Core)         │
-│  - Shell-Execution                               │
 └──────────────────┬───────────────────────────────┘
-                   │ MQTT publish/subscribe
-                   │
-        ┌──────────▼──────────┐
-        │  Mosquitto (MQTT)    │
-        │  Event-Bus           │
-        └──────────┬──────────┘
+                   │ Bus (Nervensystem)
+                   │ intern: tokio::broadcast
+                   │ extern: MQTT (Mosquitto)
                    │
 ┌──────────────────▼───────────────────────────────┐
-│  aiux-nerves                                      │
+│  Nerves (Fuehler zur Umwelt)                      │
 │                                                   │
-│  Passive, dauerhafte Beobachtung.                 │
-│  Filtern selbst, melden nur Relevantes.           │
+│  Jeder Nerve hat eigenen Filter (Thalamus).       │
+│  Vorverarbeitung vor Ort, meldet als Text.        │
 │                                                   │
-│  nerve-input    Direkte Interaktion               │
-│  nerve-messages Eingehende Nachrichten            │
 │  nerve-system   CPU, RAM, Disk, Temperatur        │
 │  nerve-log      Syslog                            │
 │  nerve-net      Netzwerk                          │
 │  nerve-file     Dateisystem-Events                │
-│  nerve-audio    Mikrofon (spaeter)                │
-│  nerve-vision   Kamera (spaeter)                  │
+│  nerve-audio    Mikrofon                          │
+│  nerve-vision   Kamera                            │
 │                                                   │
-│  Lokale Inference: tract (ONNX, Pure Rust)        │
-│  Lokale LLMs: llama-cpp-2 (optional, offline)     │
-└───────────────────────────────────────────────────┘
+│  Lokale Modelle fuer Vorverarbeitung:             │
+│  tract (ONNX), Ollama, llama-cpp-2                │
+└──────────────────┬───────────────────────────────┘
                    │
 ┌──────────────────▼───────────────────────────────┐
-│  Betriebssystem                                   │
-│  Primaer: Alpine Linux (Raspi)                    │
-│  Auch: jedes Linux, macOS, Windows                │
+│  Betriebssystem / Hardware                        │
+│  Alpine Linux (Raspi), jedes Linux, macOS         │
 └──────────────────────────────────────────────────┘
 ```
 

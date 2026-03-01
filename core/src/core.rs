@@ -168,10 +168,12 @@ impl Core {
             full_text: response_text.clone(),
         });
 
-        // History aktualisieren und persistieren
-        self.history.push(Message::user(input));
-        self.history.push(Message::assistant(&response_text));
-        save_history(&self.home, &self.history);
+        // History aktualisieren und persistieren (nur wenn Antwort nicht leer)
+        if !response_text.is_empty() {
+            self.history.push(Message::user(input));
+            self.history.push(Message::assistant(&response_text));
+            save_history(&self.home, &self.history);
+        }
 
         Ok(())
     }
