@@ -48,7 +48,9 @@ macro_rules! stream_agent {
                     // ToolCall, etc.
                 }
                 Err(e) => {
-                    eprintln!("\nFehler: {}", e);
+                    $bus.publish(Event::SystemMessage {
+                        text: format!("Fehler: {}", e),
+                    });
                     break;
                 }
             }
@@ -191,8 +193,8 @@ impl Core {
             });
         }
 
-        // History aktualisieren und persistieren (nur wenn Antwort nicht leer)
-        if !response_text.is_empty() {
+        // History aktualisieren und persistieren (nur bei vollstaendiger Antwort)
+        if usage.is_some() && !response_text.is_empty() {
             self.history.push(Message::user(input));
             self.history.push(Message::assistant(&response_text));
             save_history(&self.home, &self.history);
