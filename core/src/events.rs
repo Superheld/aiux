@@ -34,4 +34,7 @@ pub enum Event {
 
     /// Kompaktifizierung abgeschlossen
     Compacted,
+
+    /// Tool wurde aufgerufen
+    ToolCall { name: String },
 }

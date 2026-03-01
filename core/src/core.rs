@@ -23,7 +23,9 @@ use crate::events::Event;
 use crate::history::{
     context_window_size, conversation_path, load_history, save_history, should_compact,
 };
-use crate::memory::MemoryTool;
+use crate::tools::memory::MemoryTool;
+use crate::tools::soul::SoulTool;
+use crate::tools::user::UserTool;
 use crate::preamble::{count_context_files, load_preamble};
 
 /// Macro: Streamt die Agent-Antwort und sammelt den Text.
@@ -48,9 +50,14 @@ macro_rules! stream_agent {
                 Ok(MultiTurnStreamItem::FinalResponse(final_resp)) => {
                     usage = Some(final_resp.usage());
                 }
-                Ok(_) => {
-                    // ToolCall, etc.
+                Ok(MultiTurnStreamItem::StreamAssistantItem(
+                    StreamedAssistantContent::ToolCall { tool_call, .. },
+                )) => {
+                    $bus.publish(Event::ToolCall {
+                        name: tool_call.function.name.clone(),
+                    });
                 }
+                Ok(_) => {}
                 Err(e) => {
                     $bus.publish(Event::SystemMessage {
                         text: format!("Fehler: {}", e),
@@ -120,10 +127,32 @@ impl Core {
                     self.handle_input(&text).await?;
                 }
                 Ok(Event::ClearHistory) => {
+                    // Memory-Flush vor dem Loeschen
+                    if !self.history.is_empty() {
+                        self.bus.publish(Event::Compacting);
+                        if let Err(e) = self.memory_flush().await {
+                            self.bus.publish(Event::SystemMessage {
+                                text: format!("Memory-Flush fehlgeschlagen: {}", e),
+                            });
+                        }
+                        self.bus.publish(Event::Compacted);
+                    }
                     self.history.clear();
                     fs::remove_file(conversation_path(&self.home)).ok();
                 }
-                Ok(Event::Shutdown) => break,
+                Ok(Event::Shutdown) => {
+                    // Memory-Flush vor dem Beenden
+                    if !self.history.is_empty() {
+                        self.bus.publish(Event::Compacting);
+                        if let Err(e) = self.memory_flush().await {
+                            self.bus.publish(Event::SystemMessage {
+                                text: format!("Memory-Flush fehlgeschlagen: {}", e),
+                            });
+                        }
+                        self.bus.publish(Event::Compacted);
+                    }
+                    break;
+                }
                 Ok(_) => {} // Eigene Events ignorieren
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     eprintln!("Bus: {} Events verpasst", n);
@@ -142,6 +171,8 @@ impl Core {
             self.preamble = load_preamble(&self.home);
         }
 
+        let soul_tool = SoulTool::new(&self.home, Arc::clone(&self.preamble_dirty));
+        let user_tool = UserTool::new(&self.home, Arc::clone(&self.preamble_dirty));
         let memory_tool = MemoryTool::new(&self.home, Arc::clone(&self.preamble_dirty));
 
         // Stream-Verarbeitung passiert im match-Block,
@@ -153,6 +184,8 @@ impl Core {
                     .agent(&self.config.model)
                     .preamble(&self.preamble)
                     .temperature(self.config.temperature)
+                    .tool(soul_tool)
+                    .tool(user_tool)
                     .tool(memory_tool)
                     .build();
                 stream_agent!(agent, input, self.history_for_agent(), self.bus)
@@ -163,6 +196,8 @@ impl Core {
                     .agent(&self.config.model)
                     .preamble(&self.preamble)
                     .temperature(self.config.temperature)
+                    .tool(soul_tool)
+                    .tool(user_tool)
                     .tool(memory_tool)
                     .build();
                 stream_agent!(agent, input, self.history_for_agent(), self.bus)
@@ -176,6 +211,8 @@ impl Core {
                     .agent(&self.config.model)
                     .preamble(&self.preamble)
                     .temperature(self.config.temperature)
+                    .tool(soul_tool)
+                    .tool(user_tool)
                     .tool(memory_tool)
                     .build();
                 stream_agent!(agent, input, self.history_for_agent(), self.bus)
@@ -246,41 +283,6 @@ impl Core {
         }
     }
 
-    /// Non-streaming, tool-freier LLM-Call fuer interne Aufgaben (z.B. Kompaktifizierung).
-    async fn simple_chat(&self, preamble: &str, prompt: &str) -> Result<String, anyhow::Error> {
-        match self.config.provider.as_str() {
-            "anthropic" => {
-                let client = anthropic::Client::from_env();
-                let agent = client
-                    .agent(&self.config.model)
-                    .preamble(preamble)
-                    .temperature(0.3)
-                    .build();
-                Ok(agent.chat(prompt, vec![]).await?)
-            }
-            "mistral" => {
-                let client = mistral::Client::from_env();
-                let agent = client
-                    .agent(&self.config.model)
-                    .preamble(preamble)
-                    .temperature(0.3)
-                    .build();
-                Ok(agent.chat(prompt, vec![]).await?)
-            }
-            "ollama" => {
-                let client: ollama::Client = ollama::Client::new(rig::client::Nothing)
-                    .map_err(|e| anyhow::anyhow!("Ollama-Client: {}", e))?;
-                let agent = client
-                    .agent(&self.config.model)
-                    .preamble(preamble)
-                    .temperature(0.3)
-                    .build();
-                Ok(agent.chat(prompt, vec![]).await?)
-            }
-            other => anyhow::bail!("Unbekannter Provider: '{}'", other),
-        }
-    }
-
     /// Baut die History als lesbaren Text zusammen.
     fn history_as_text(&self) -> String {
         let mut text = String::from("Hier ist die bisherige Konversation:\n\n");
@@ -306,16 +308,87 @@ impl Core {
                 }
             }
         }
-        text.push_str("\nFasse diese Konversation zusammen.");
+        text.push_str("\nDestilliere das Wichtige und fasse den Rest zusammen.");
         text
     }
 
-    /// Fuehrt einen Kompaktifizierungs-Call durch.
-    async fn compact_history(&self) -> Result<String, anyhow::Error> {
+    /// Hippocampus-Call: Destilliert Wissen aus der Konversation in Memory-Dateien.
+    /// Nutzt einen Agent mit Tools (soul, user, memory) um Wichtiges zu speichern.
+    /// Gibt die Zusammenfassung als Text zurueck.
+    async fn hippocampus_call(&self, prompt: &str) -> Result<String, anyhow::Error> {
         let preamble = fs::read_to_string(self.home.join(".system/compact-preamble.md"))
-            .unwrap_or_else(|_| "Fasse die Konversation zusammen.".to_string());
+            .unwrap_or_else(|_| {
+                "Du bist der Hippocampus. Destilliere Wichtiges aus der Konversation \
+                 und speichere es ueber die Tools. Fasse den Rest zusammen."
+                    .to_string()
+            });
+
+        let soul_tool = SoulTool::new(&self.home, Arc::clone(&self.preamble_dirty));
+        let user_tool = UserTool::new(&self.home, Arc::clone(&self.preamble_dirty));
+        let memory_tool = MemoryTool::new(&self.home, Arc::clone(&self.preamble_dirty));
+
+        match self.config.provider.as_str() {
+            "anthropic" => {
+                let client = anthropic::Client::from_env();
+                let agent = client
+                    .agent(&self.config.model)
+                    .preamble(&preamble)
+                    .temperature(0.3)
+                    .tool(soul_tool)
+                    .tool(user_tool)
+                    .tool(memory_tool)
+                    .build();
+                Ok(agent.chat(prompt, vec![]).await?)
+            }
+            "mistral" => {
+                let client = mistral::Client::from_env();
+                let agent = client
+                    .agent(&self.config.model)
+                    .preamble(&preamble)
+                    .temperature(0.3)
+                    .tool(soul_tool)
+                    .tool(user_tool)
+                    .tool(memory_tool)
+                    .build();
+                Ok(agent.chat(prompt, vec![]).await?)
+            }
+            "ollama" => {
+                let client: ollama::Client = ollama::Client::new(rig::client::Nothing)
+                    .map_err(|e| anyhow::anyhow!("Ollama-Client: {}", e))?;
+                let agent = client
+                    .agent(&self.config.model)
+                    .preamble(&preamble)
+                    .temperature(0.3)
+                    .tool(soul_tool)
+                    .tool(user_tool)
+                    .tool(memory_tool)
+                    .build();
+                Ok(agent.chat(prompt, vec![]).await?)
+            }
+            other => anyhow::bail!("Unbekannter Provider: '{}'", other),
+        }
+    }
+
+    /// Fuehrt einen Kompaktifizierungs-Call durch.
+    /// Destilliert Wissen via Tools und reduziert die History auf die letzten 5 Messages.
+    async fn compact_history(&mut self) -> Result<String, anyhow::Error> {
         let prompt = self.history_as_text();
-        self.simple_chat(&preamble, &prompt).await
+        let summary = self.hippocampus_call(&prompt).await?;
+
+        // History auf die letzten 5 Messages reduzieren
+        let keep_count = 5.min(self.history.len());
+        let kept = self.history.split_off(self.history.len() - keep_count);
+        self.history = kept;
+
+        Ok(summary)
+    }
+
+    /// Memory-Flush: Hippocampus-Call ohne History-Reduktion.
+    /// Wird bei /clear und /quit aufgerufen um Wissen zu sichern.
+    async fn memory_flush(&self) -> Result<(), anyhow::Error> {
+        let prompt = self.history_as_text();
+        self.hippocampus_call(&prompt).await?;
+        Ok(())
     }
 }
 
@@ -367,7 +440,7 @@ mod tests {
         let text = core.history_as_text();
         assert!(text.contains("User: Was ist Rust?"));
         assert!(text.contains("Assistant: Eine Programmiersprache."));
-        assert!(text.contains("Fasse diese Konversation zusammen."));
+        assert!(text.contains("Destilliere das Wichtige"));
     }
 
     #[test]
@@ -377,7 +450,7 @@ mod tests {
 
         let text = core.history_as_text();
         assert!(text.contains("Hier ist die bisherige Konversation:"));
-        assert!(text.contains("Fasse diese Konversation zusammen."));
+        assert!(text.contains("Destilliere das Wichtige"));
         assert!(!text.contains("User:"));
     }
 

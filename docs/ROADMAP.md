@@ -15,7 +15,7 @@ Gebaut und lauffaehig:
 - [x] REPL als eigenes Modul (stdin/stdout ueber Bus)
 - [x] Agent-Factory (Anthropic, Mistral, Ollama per Config)
 - [x] Boot-Sequence: soul.md -> user.md -> context/*.md
-- [x] MemoryTool (write/read/list auf context/)
+- [x] Memory-Tools: SoulTool, UserTool, MemoryTool (read/write/edit/append/list)
 - [x] Conversation-Persistenz (taegliche JSON-Rotation)
 - [x] Slash-Commands (/quit, /exit, /clear)
 - [x] Kompaktifizierung (History-Zusammenfassung bei Token-Budget)
@@ -63,19 +63,21 @@ home/
 
 ---
 
-## Phase C: Hippocampus (automatisches Memory)
+## Phase C: Hippocampus (Memory-System erweitern)
 
-> Das Gehirn soll sich Dinge merken ohne bewusst entscheiden zu muessen.
+> Das Gehirn braucht spezialisiertes Gedaechtnis und bewusstes Aufschreiben.
 
-Ein kleiner Prozess der auf dem Bus mithoert und wichtige Dinge
-automatisch speichert. Kein LLM-Call pro Nachricht noetig -
-regelbasiert oder mit kleinem lokalem Modell.
+Drei spezialisierte Tools statt einem generischen MemoryTool.
+Hippocampus-Call bei Kompaktifizierung und Memory-Flush (/clear, /quit)
+destilliert Wissen automatisch in die passenden Dateien.
 
-- [ ] Hippocampus-Modul: hoert ResponseComplete Events mit
-- [ ] Erkennung relevanter Inhalte (Keywords, Muster)
-- [ ] Automatisches Schreiben in context/
-- [ ] MemoryTool bleibt fuer bewusstes Aufschreiben
-- [ ] Unit-Tests fuer Phase C
+- [x] Tools-Modul: SoulTool, UserTool, MemoryTool (read/write/edit/append)
+- [x] Konfigurierbare Tool-Beschreibungen aus home/.system/tool-*.md
+- [x] ToolCall Event: Tool-Aufrufe als SystemMessage sichtbar
+- [x] Hippocampus-Call: Kompaktifizierung mit Tools (destilliert Wissen)
+- [x] Memory-Flush bei /clear und /quit (sichert Wissen vor Loeschen)
+- [x] History-Reduktion: nach Kompaktifizierung nur letzte 5 Messages behalten
+- [x] Unit-Tests fuer Phase C (87 Tests gesamt)
 
 ---
 
@@ -183,4 +185,4 @@ Frueher offen, jetzt beantwortet:
 
 ---
 
-*Letzte Aktualisierung: 2026-03-01*
+*Letzte Aktualisierung: 2026-03-02*

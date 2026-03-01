@@ -9,8 +9,8 @@ mod core;
 mod events;
 mod history;
 mod home;
-mod memory;
 mod preamble;
+mod tools;
 mod repl;
 
 use std::sync::Arc;
