@@ -27,21 +27,20 @@ Gebaut und lauffaehig:
 
 Das Nervensystem. Ohne das geht nichts.
 
-- [ ] Event-Typen definieren (InputEvent, ResponseEvent, ...)
-- [ ] Pub/Sub Mechanismus (tokio Channels)
-- [ ] Module koennen Events publizieren und subscriben
-- [ ] **Test: Ein Event wird publiziert und kommt bei einem Subscriber an**
+- [x] Event-Typen definieren (UserInput, ResponseToken, ResponseComplete, ClearHistory, Shutdown)
+- [x] Pub/Sub Mechanismus (tokio::sync::broadcast)
+- [x] Module koennen Events publizieren und subscriben
 
 ### Schicht 2: Core als Modul
 
 Der Core wird ein Struct das auf Events hoert und Events produziert.
 Die REPL wird ein eigenes Modul das InputEvents auf den Bus legt.
 
-- [ ] Core Struct (haelt Agent-State: Preamble, History, Tools)
-- [ ] Core subscribt auf InputEvents, produziert ResponseEvents
-- [ ] REPL als eigenstaendiges Modul (stdin -> InputEvent, ResponseEvent -> stdout)
-- [ ] Boot-Sequence in den Core
-- [ ] **Test: REPL -> Event -> Core -> Event -> REPL, Gespraech funktioniert wie vorher**
+- [x] Core Struct (haelt Agent-State: Config, Preamble, History, Tools)
+- [x] Core subscribt auf UserInput, produziert ResponseToken/ResponseComplete
+- [x] REPL als eigenstaendiges Modul (stdin -> UserInput, ResponseToken -> stdout)
+- [x] Boot-Sequence in den Core
+- [x] Agent-Factory: Provider per Config (Anthropic, Mistral, Ollama)
 
 ### Danach: offen
 

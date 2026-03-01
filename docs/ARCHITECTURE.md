@@ -98,6 +98,78 @@ Aenderungen an der Config erfordern kein Rekompilieren.
 
 ---
 
+## Rollen
+
+Der Agent hat nicht eine feste Aufgabe, sondern nimmt verschiedene Rollen ein.
+Jede Rolle ist eine eigenstaendige Agent-Instanz mit eigener Config, eigenem
+Memory und eigenen Nerves. Rollen koennen parallel laufen.
+
+### Was eine Rolle definiert
+
+- **role.md** - Wer bin ich in dieser Rolle, was darf ich, was nicht
+- **Config** - Welches Modell, welche Temperature, welche Nerves
+- **Memory** - Kontextspezifisches Wissen fuer diese Rolle
+- **Nerves** - Auf welche Kanaele hoert diese Rolle, welche ignoriert sie
+
+### Was IMMER gleich bleibt
+
+- **soul.md** - Die Identitaet. Egal welche Rolle, der Agent bleibt derselbe.
+- **user.md** - Der Mensch. Jede Rolle kennt Bruce.
+
+Die Preamble einer Rolle: `soul + user + role + role-memory + role-context`.
+
+### Main ist das Gehirn
+
+`main` ist keine Rolle wie die anderen - es ist das Gehirn, der Boss.
+Andere Rollen (Assistent, Kuenstler, System-Admin) sind Instanzen die
+`main` starten, steuern und beenden kann.
+
+Kommunikation zwischen Rollen laeuft ueber den Bus:
+- `main` kann eine Rolle interviewen ("Was hast du heute gemacht?")
+- Eine Rolle kann Feedback an `main` geben ("Ich brauche Zugriff auf X")
+- `main` entscheidet, delegiert, koordiniert
+
+### Beispiel
+
+```
+main (Gehirn, Anthropic Claude)
+  ├── assistent (Rolle, Anthropic Claude)
+  │     Config: gleicher Provider, eigener Memory
+  │     Nerves: nerve-input (REPL/Gateway)
+  │
+  ├── maler (Rolle, Mistral/Ollama)
+  │     Config: anderer Provider, eigener Memory
+  │     Nerves: nerve-vision, nerve-file
+  │
+  └── sysadmin (Rolle, Anthropic Claude)
+        Config: gleicher Provider, eigener Memory
+        Nerves: nerve-system, nerve-log, nerve-net
+```
+
+Jede Rolle laeuft als eigener Task mit eigenem Agent.
+Der Bus verbindet alles. Der Mensch kann mit jeder Rolle direkt sprechen,
+oder `main` entscheidet wer antwortet.
+
+### Konsequenz fuer Config und Verzeichnisse
+
+Die Systemkonfiguration (Provider, API-Keys) gehoert nicht in den
+Arbeitsbereich einer Rolle. Die Trennung:
+
+- **Systemebene** - Provider, API-Keys, Bus-Config (geteilt)
+- **Rollenebene** - Modell, Temperature, Nerves, Memory (pro Rolle)
+- **Identitaet** - soul.md, user.md (geteilt, immer geladen)
+
+Wie genau die Verzeichnisstruktur aussieht, wird entschieden wenn
+die erste Rolle neben `main` entsteht.
+
+### Conversations sind kein Rollen-Konzept
+
+Conversations (conversation-*.json) sind reines Log - Tages-History
+damit der Agent weiss wo er aufgehoert hat. Sie gehoeren nicht zu einer
+Rolle, sondern sind ein technisches Detail der Kontextverwaltung.
+
+---
+
 ## Design Patterns
 
 Patterns die wir bewusst einsetzen (nicht was Frameworks mitbringen):
@@ -209,7 +281,7 @@ Die Metaphern sind nicht Deko - sie SIND die Architektur-Entscheidungen:
 
 Das Gehirn. Kapselt den rig-Agent, Preamble und History.
 Subscribt auf `UserInput` Events, publiziert `ResponseToken`/`ResponseComplete`.
-Baut den Agent bei Bedarf neu (wenn sich Config oder Preamble aendern).
+Baut den Agent bei jedem Input neu (so greifen Preamble-Aenderungen sofort).
 
 ### REPL (`repl.rs`)
 
@@ -308,6 +380,7 @@ aiux/
 │       ├── events.rs      # Event-Typen (UserInput, Response, Shutdown)
 │       ├── bus.rs          # Interner Event-Bus (broadcast)
 │       ├── core.rs         # Gehirn (rig-Agent, History, Preamble)
+│       ├── config.rs       # Agent-Config (Provider, Modell, Temperature)
 │       ├── repl.rs         # Kommandozeile (stdin/stdout ueber Bus)
 │       └── memory.rs       # MemoryTool (Tool-Use)
 ├── nerve/                 # aiux-nerve (Platzhalter, nicht implementiert)

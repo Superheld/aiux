@@ -6,14 +6,21 @@ Embodied AI - ein OS in dem eine KI lebt, nicht eine App auf einem OS.
 Das Linux-System ist der Koerper, der Agent lernt ihn zu spueren und zu nutzen.
 Siehe docs/PRD.md (Vision), docs/ARCHITECTURE.md (Technik), docs/ROADMAP.md (Phasen).
 
-## Aktueller Stand (nach Phase 4.3)
+## Aktueller Stand
 
 Noch ein Kopf ohne Leib: REPL mit Memory, kein Daemon, keine Sinne.
+Aber: Event-Bus steht, Code ist modular, Provider per Config steuerbar.
 
-- **core/src/main.rs** - REPL, Boot-Sequence, History-Persistenz
+- **core/src/main.rs** - Verdrahtung (Bus + Core + REPL)
+- **core/src/core.rs** - Gehirn (rig-Agent, History, Preamble, Agent-Factory)
+- **core/src/bus.rs** - Interner Event-Bus (tokio::sync::broadcast)
+- **core/src/events.rs** - Event-Typen (UserInput, ResponseToken, etc.)
+- **core/src/repl.rs** - Kommandozeile (stdin/stdout ueber Bus)
+- **core/src/config.rs** - Agent-Config aus home/config.toml
 - **core/src/memory.rs** - MemoryTool (write/read/list auf context/)
-- **nerve/** - Platzhalter, nicht implementiert
+- **home/config.toml** - Provider, Modell, Temperature
 - **home/memory/** - soul.md, user.md, context/, conversation-*.json
+- **nerve/** - Platzhalter, nicht implementiert
 
 ## Architektur-Regeln
 
