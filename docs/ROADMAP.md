@@ -31,7 +31,7 @@ Gebaut und lauffaehig:
 - [x] History-Limit: Kompaktifizierung bei Token-Budget (compact_threshold)
 - [x] Fehlerbehandlung: API-Fehler als SystemMessage, nicht in History
 - [x] REPL: Prompt nach Fehlern/Kompaktifizierung korrekt (Compacting/Compacted Events)
-- [ ] Unit-Tests fuer Phase A
+- [x] Unit-Tests fuer Phase A (43 Tests)
 
 ---
 
@@ -41,20 +41,25 @@ Gebaut und lauffaehig:
 
 ```
 home/
-├── config.toml              # System: Provider, API-Keys
+├── .system/
+│   ├── config.toml          # Flach: provider, model, temperature, ...
+│   └── compact-preamble.md  # Kompaktifizierungs-Prompt
 ├── memory/
-│   ├── soul.md              # Identitaet (geteilt)
-│   ├── user.md              # Mensch (geteilt)
-│   ├── context/             # Main's Arbeits-Memory
-│   └── conversations/       # Main's Tages-History
-└── roles/                   # Rollen (spaeter)
+│   ├── soul.md              # Identitaet
+│   ├── user.md              # Mensch
+│   ├── context/             # Arbeits-Memory
+│   └── conversations/       # Tages-History
+├── skills/                  # Platzhalter
+└── tools/                   # Platzhalter
 ```
 
-- [ ] Conversations nach memory/conversations/ verschieben
-- [ ] Config aufteilen: System (Provider) vs. Main (Modell, Temperature)
-- [ ] Code anpassen: Config und Pfade auf neue Struktur
-- [ ] .gitignore fuer conversations/
-- [ ] Unit-Tests fuer Phase B
+- [x] Config nach .system/config.toml verschoben (flaches Format, kein [agents.main] mehr)
+- [x] Conversations nach memory/conversations/ verschoben
+- [x] Code angepasst: Config direkt statt AgentConfig + HashMap
+- [x] .gitignore fuer **/conversations/
+- [x] journal/ Platzhalter entfernt
+- [x] .env.example ergaenzt
+- [x] Unit-Tests fuer Phase B (11 Tests, 54 gesamt)
 
 ---
 
@@ -174,7 +179,7 @@ Frueher offen, jetzt beantwortet:
 | Scheduler: eigenes Modul? | Ja, Hirnstamm. Eigenes Modul, Events auf den Bus. |
 | Chat = Nerve? | Nein. Chat ist direkter Zugang zum Grosshirn. Gateway, kein Nerve. |
 | Filter/Thalamus zentral? | Nein. Verteilt, jeder Nerve filtert selbst. |
-| Config wo? | System-Config in home/config.toml. Rollen-Config in roles/<name>/config.toml. |
+| Config wo? | System-Config in home/.system/config.toml. Rollen-Config spaeter in roles/<name>/config.toml. |
 
 ---
 
