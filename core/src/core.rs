@@ -440,3 +440,366 @@ fn save_history(home: &PathBuf, history: &[Message]) {
         fs::write(&path, data).ok();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    // --- Helper ---
+
+    /// Erstellt ein temporaeres home/ mit der noetigsten Struktur.
+    fn test_home() -> (TempDir, PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().to_path_buf();
+        fs::create_dir_all(home.join("memory/context")).unwrap();
+        fs::create_dir_all(home.join("memory")).unwrap();
+        (tmp, home)
+    }
+
+    fn test_config() -> AgentConfig {
+        AgentConfig {
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-5-20250929".to_string(),
+            temperature: 0.7,
+            api_key_env: None,
+            context_window: None,
+            compact_threshold: None,
+        }
+    }
+
+    fn test_core(home: PathBuf) -> Core {
+        let bus = Arc::new(Bus::new(16));
+        Core::new(bus, home, test_config())
+    }
+
+    // ==========================================================
+    // should_compact()
+    // ==========================================================
+
+    #[test]
+    fn compact_schwelle_genau_erreicht() {
+        // 80% von 200_000 = 160_000
+        assert!(should_compact(160_000, 200_000, 80));
+    }
+
+    #[test]
+    fn compact_knapp_unter_schwelle() {
+        assert!(!should_compact(159_999, 200_000, 80));
+    }
+
+    #[test]
+    fn compact_ueber_schwelle() {
+        assert!(should_compact(180_000, 200_000, 80));
+    }
+
+    #[test]
+    fn compact_context_window_null() {
+        // Division durch 0 abgefangen
+        assert!(!should_compact(100, 0, 80));
+    }
+
+    #[test]
+    fn compact_null_prozent_schwelle() {
+        // 0% = immer kompaktifizieren (wenn tokens > 0)
+        assert!(should_compact(1, 200_000, 0));
+    }
+
+    #[test]
+    fn compact_hundert_prozent() {
+        assert!(should_compact(200_000, 200_000, 100));
+        assert!(!should_compact(199_999, 200_000, 100));
+    }
+
+    #[test]
+    fn compact_null_tokens() {
+        assert!(!should_compact(0, 200_000, 80));
+    }
+
+    // ==========================================================
+    // context_window_size()
+    // ==========================================================
+
+    #[test]
+    fn window_claude_modelle() {
+        assert_eq!(context_window_size("claude-sonnet-4-5-20250929", None), 200_000);
+        assert_eq!(context_window_size("claude-3-haiku", None), 200_000);
+    }
+
+    #[test]
+    fn window_mistral_modelle() {
+        assert_eq!(context_window_size("mistral-large-latest", None), 128_000);
+        assert_eq!(context_window_size("mistral-small-2402", None), 32_000);
+    }
+
+    #[test]
+    fn window_unbekanntes_modell() {
+        assert_eq!(context_window_size("gpt-4o", None), 128_000);
+        assert_eq!(context_window_size("", None), 128_000);
+    }
+
+    #[test]
+    fn window_config_override() {
+        // Override hat Vorrang, egal welches Modell
+        assert_eq!(context_window_size("claude-sonnet-4-5-20250929", Some(50_000)), 50_000);
+        assert_eq!(context_window_size("unbekannt", Some(8_000)), 8_000);
+    }
+
+    // ==========================================================
+    // load_preamble() / load_context_files()
+    // ==========================================================
+
+    #[test]
+    fn preamble_mit_soul_und_user() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join("memory/soul.md"), "Ich bin AIUX.").unwrap();
+        fs::write(home.join("memory/user.md"), "Bruce ist cool.").unwrap();
+
+        let preamble = load_preamble(&home);
+        assert!(preamble.contains("Ich bin AIUX."));
+        assert!(preamble.contains("Bruce ist cool."));
+        assert!(preamble.contains("---")); // Trenner
+    }
+
+    #[test]
+    fn preamble_nur_soul() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join("memory/soul.md"), "Ich bin AIUX.").unwrap();
+
+        let preamble = load_preamble(&home);
+        assert_eq!(preamble, "Ich bin AIUX.");
+    }
+
+    #[test]
+    fn preamble_ohne_dateien() {
+        let (_tmp, home) = test_home();
+        let preamble = load_preamble(&home);
+        assert!(preamble.is_empty());
+    }
+
+    #[test]
+    fn preamble_mit_context_dateien() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join("memory/soul.md"), "Soul.").unwrap();
+        fs::write(home.join("memory/context/a.md"), "AAA").unwrap();
+        fs::write(home.join("memory/context/b.md"), "BBB").unwrap();
+
+        let preamble = load_preamble(&home);
+        assert!(preamble.contains("# Kontext: a"));
+        assert!(preamble.contains("AAA"));
+        assert!(preamble.contains("# Kontext: b"));
+        assert!(preamble.contains("BBB"));
+    }
+
+    #[test]
+    fn preamble_leere_dateien_werden_ignoriert() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join("memory/soul.md"), "").unwrap();
+        fs::write(home.join("memory/context/leer.md"), "").unwrap();
+
+        let preamble = load_preamble(&home);
+        assert!(preamble.is_empty());
+    }
+
+    #[test]
+    fn context_files_nur_md() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join("memory/context/notiz.md"), "Inhalt").unwrap();
+        fs::write(home.join("memory/context/bild.png"), "binary").unwrap();
+        fs::write(home.join("memory/context/readme.txt"), "text").unwrap();
+
+        let files = load_context_files(&home.join("memory/context"));
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].0, "notiz");
+    }
+
+    #[test]
+    fn context_files_sortiert() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join("memory/context/c.md"), "C").unwrap();
+        fs::write(home.join("memory/context/a.md"), "A").unwrap();
+        fs::write(home.join("memory/context/b.md"), "B").unwrap();
+
+        let files = load_context_files(&home.join("memory/context"));
+        let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn context_files_leeres_verzeichnis() {
+        let (_tmp, home) = test_home();
+        let files = load_context_files(&home.join("memory/context"));
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn context_files_verzeichnis_existiert_nicht() {
+        let (_tmp, home) = test_home();
+        let files = load_context_files(&home.join("memory/gibts_nicht"));
+        assert!(files.is_empty());
+    }
+
+    // ==========================================================
+    // save_history() / load_history()
+    // ==========================================================
+
+    #[test]
+    fn history_save_and_load_roundtrip() {
+        let (_tmp, home) = test_home();
+        let history = vec![
+            Message::user("Hallo"),
+            Message::assistant("Hi!"),
+        ];
+        save_history(&home, &history);
+
+        let loaded = load_history(&home);
+        assert_eq!(loaded.len(), 2);
+    }
+
+    #[test]
+    fn history_load_fehlende_datei() {
+        let (_tmp, home) = test_home();
+        let loaded = load_history(&home);
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn history_load_kaputtes_json() {
+        let (_tmp, home) = test_home();
+        let path = conversation_path(&home);
+        fs::write(&path, "das ist kein json {{{").unwrap();
+
+        let loaded = load_history(&home);
+        assert!(loaded.is_empty()); // unwrap_or_default greift
+    }
+
+    #[test]
+    fn history_leere_liste() {
+        let (_tmp, home) = test_home();
+        save_history(&home, &[]);
+
+        let loaded = load_history(&home);
+        assert!(loaded.is_empty());
+    }
+
+    // ==========================================================
+    // history_as_text()
+    // ==========================================================
+
+    #[test]
+    fn history_text_normal() {
+        let (_tmp, home) = test_home();
+        let mut core = test_core(home);
+        core.history = vec![
+            Message::user("Was ist Rust?"),
+            Message::assistant("Eine Programmiersprache."),
+        ];
+
+        let text = core.history_as_text();
+        assert!(text.contains("User: Was ist Rust?"));
+        assert!(text.contains("Assistant: Eine Programmiersprache."));
+        assert!(text.contains("Fasse diese Konversation zusammen."));
+    }
+
+    #[test]
+    fn history_text_leer() {
+        let (_tmp, home) = test_home();
+        let core = test_core(home);
+
+        let text = core.history_as_text();
+        assert!(text.contains("Hier ist die bisherige Konversation:"));
+        assert!(text.contains("Fasse diese Konversation zusammen."));
+        assert!(!text.contains("User:"));
+    }
+
+    // ==========================================================
+    // history_for_agent()
+    // ==========================================================
+
+    #[test]
+    fn history_for_agent_ohne_marker() {
+        let (_tmp, home) = test_home();
+        let mut core = test_core(home);
+        core.history = vec![
+            Message::user("Eins"),
+            Message::assistant("Zwei"),
+        ];
+
+        let result = core.history_for_agent();
+        assert_eq!(result.len(), 2); // Alles
+    }
+
+    #[test]
+    fn history_for_agent_mit_marker() {
+        let (_tmp, home) = test_home();
+        let mut core = test_core(home);
+        core.history = vec![
+            Message::user("Alt"),
+            Message::assistant("Alte Antwort"),
+            Message::user("[KOMPAKTIFIZIERUNG]"),
+            Message::assistant("Zusammenfassung"),
+            Message::user("Neu"),
+            Message::assistant("Neue Antwort"),
+        ];
+
+        let result = core.history_for_agent();
+        assert_eq!(result.len(), 4); // Ab Marker: Marker + Summary + Neu + Neue Antwort
+    }
+
+    #[test]
+    fn history_for_agent_mehrere_marker() {
+        let (_tmp, home) = test_home();
+        let mut core = test_core(home);
+        core.history = vec![
+            Message::user("[KOMPAKTIFIZIERUNG]"),
+            Message::assistant("Erste Zusammenfassung"),
+            Message::user("Dazwischen"),
+            Message::assistant("Antwort"),
+            Message::user("[KOMPAKTIFIZIERUNG]"),
+            Message::assistant("Zweite Zusammenfassung"),
+            Message::user("Aktuell"),
+            Message::assistant("Aktuelle Antwort"),
+        ];
+
+        let result = core.history_for_agent();
+        assert_eq!(result.len(), 4); // Ab letztem Marker
+    }
+
+    #[test]
+    fn history_for_agent_leere_history() {
+        let (_tmp, home) = test_home();
+        let core = test_core(home);
+
+        let result = core.history_for_agent();
+        assert!(result.is_empty());
+    }
+
+    // ==========================================================
+    // boot_info()
+    // ==========================================================
+
+    #[test]
+    fn boot_info_alles_vorhanden() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join("memory/soul.md"), "Soul").unwrap();
+        fs::write(home.join("memory/user.md"), "User").unwrap();
+        fs::write(home.join("memory/context/a.md"), "A").unwrap();
+
+        let core = test_core(home);
+        let info = core.boot_info();
+        assert!(info.has_soul);
+        assert!(info.has_user);
+        assert_eq!(info.context_count, 1);
+    }
+
+    #[test]
+    fn boot_info_nichts_vorhanden() {
+        let (_tmp, home) = test_home();
+        let core = test_core(home);
+        let info = core.boot_info();
+        assert!(!info.has_soul);
+        assert!(!info.has_user);
+        assert_eq!(info.context_count, 0);
+        assert_eq!(info.history_count, 0);
+    }
+}

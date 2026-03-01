@@ -162,3 +162,145 @@ impl Tool for MemoryTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn test_tool() -> (TempDir, MemoryTool) {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().to_path_buf();
+        let dirty = Arc::new(AtomicBool::new(false));
+        let tool = MemoryTool::new(&home, dirty);
+        (tmp, tool)
+    }
+
+    fn args(action: &str, key: &str, content: &str) -> MemoryArgs {
+        MemoryArgs {
+            action: action.to_string(),
+            key: key.to_string(),
+            content: content.to_string(),
+        }
+    }
+
+    // ==========================================================
+    // write
+    // ==========================================================
+
+    #[tokio::test]
+    async fn write_und_lesen() {
+        let (_tmp, tool) = test_tool();
+
+        let result = tool.call(args("write", "test", "Hallo Welt")).await.unwrap();
+        assert!(result.success);
+
+        let result = tool.call(args("read", "test", "")).await.unwrap();
+        assert!(result.success);
+        assert_eq!(result.message, "Hallo Welt");
+    }
+
+    #[tokio::test]
+    async fn write_ueberschreibt() {
+        let (_tmp, tool) = test_tool();
+
+        tool.call(args("write", "test", "Eins")).await.unwrap();
+        tool.call(args("write", "test", "Zwei")).await.unwrap();
+
+        let result = tool.call(args("read", "test", "")).await.unwrap();
+        assert_eq!(result.message, "Zwei");
+    }
+
+    #[tokio::test]
+    async fn write_setzt_dirty_flag() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().to_path_buf();
+        let dirty = Arc::new(AtomicBool::new(false));
+        let tool = MemoryTool::new(&home, Arc::clone(&dirty));
+
+        tool.call(args("write", "test", "Inhalt")).await.unwrap();
+        assert!(dirty.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn write_ohne_key() {
+        let (_tmp, tool) = test_tool();
+        let result = tool.call(args("write", "", "Inhalt")).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn write_pfad_im_key_verboten() {
+        let (_tmp, tool) = test_tool();
+
+        let result = tool.call(args("write", "../etc/passwd", "hack")).await;
+        assert!(result.is_err());
+
+        let result = tool.call(args("write", "sub/dir", "hack")).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn write_unicode_key() {
+        let (_tmp, tool) = test_tool();
+
+        let result = tool.call(args("write", "notizen-über-käse", "Gouda")).await.unwrap();
+        assert!(result.success);
+
+        let result = tool.call(args("read", "notizen-über-käse", "")).await.unwrap();
+        assert_eq!(result.message, "Gouda");
+    }
+
+    // ==========================================================
+    // read
+    // ==========================================================
+
+    #[tokio::test]
+    async fn read_nicht_vorhanden() {
+        let (_tmp, tool) = test_tool();
+        let result = tool.call(args("read", "gibts_nicht", "")).await.unwrap();
+        assert!(!result.success);
+        assert!(result.message.contains("nicht gefunden"));
+    }
+
+    #[tokio::test]
+    async fn read_ohne_key() {
+        let (_tmp, tool) = test_tool();
+        let result = tool.call(args("read", "", "")).await;
+        assert!(result.is_err());
+    }
+
+    // ==========================================================
+    // list
+    // ==========================================================
+
+    #[tokio::test]
+    async fn list_leer() {
+        let (_tmp, tool) = test_tool();
+        let result = tool.call(args("list", "", "")).await.unwrap();
+        assert!(result.success);
+        assert!(result.message.contains("Keine Notizen"));
+    }
+
+    #[tokio::test]
+    async fn list_mehrere_sortiert() {
+        let (_tmp, tool) = test_tool();
+        tool.call(args("write", "zoo", "Z")).await.unwrap();
+        tool.call(args("write", "apfel", "A")).await.unwrap();
+        tool.call(args("write", "mitte", "M")).await.unwrap();
+
+        let result = tool.call(args("list", "", "")).await.unwrap();
+        assert_eq!(result.message, "apfel, mitte, zoo");
+    }
+
+    // ==========================================================
+    // Unbekannte Aktion
+    // ==========================================================
+
+    #[tokio::test]
+    async fn unbekannte_aktion() {
+        let (_tmp, tool) = test_tool();
+        let result = tool.call(args("delete", "test", "")).await;
+        assert!(result.is_err());
+    }
+}

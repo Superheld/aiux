@@ -31,6 +31,7 @@ Gebaut und lauffaehig:
 - [x] History-Limit: Kompaktifizierung bei Token-Budget (compact_threshold)
 - [x] Fehlerbehandlung: API-Fehler als SystemMessage, nicht in History
 - [x] REPL: Prompt nach Fehlern/Kompaktifizierung korrekt (Compacting/Compacted Events)
+- [ ] Unit-Tests fuer Phase A
 
 ---
 
@@ -53,6 +54,7 @@ home/
 - [ ] Config aufteilen: System (Provider) vs. Main (Modell, Temperature)
 - [ ] Code anpassen: Config und Pfade auf neue Struktur
 - [ ] .gitignore fuer conversations/
+- [ ] Unit-Tests fuer Phase B
 
 ---
 
@@ -68,6 +70,7 @@ regelbasiert oder mit kleinem lokalem Modell.
 - [ ] Erkennung relevanter Inhalte (Keywords, Muster)
 - [ ] Automatisches Schreiben in context/
 - [ ] MemoryTool bleibt fuer bewusstes Aufschreiben
+- [ ] Unit-Tests fuer Phase C
 
 ---
 
@@ -84,6 +87,7 @@ Preamble-Reload automatisch.
 - [ ] Core reagiert auf Config-Aenderung: Agent neu bauen
 - [ ] Core reagiert auf Preamble-Aenderung: Preamble neu laden
 - [ ] MQTT-Bridge: interner Bus <-> Mosquitto (fuer externe Nerves)
+- [ ] Unit-Tests fuer Phase D
 
 ---
 
@@ -98,6 +102,7 @@ Preamble-Reload automatisch.
 - [ ] REPL: /role zum Wechseln, /roles zum Auflisten
 - [ ] Prompt zeigt aktive Rolle: main>, assistent>, etc.
 - [ ] Kommunikation zwischen Rollen ueber Bus
+- [ ] Unit-Tests fuer Phase E
 
 ---
 
@@ -112,6 +117,7 @@ ersetzt die REPL fuer externe Kommunikation.
 - [ ] Telegram-Gateway (erstes echtes Gateway)
 - [ ] Mehrzeilen-Input, Anhaenge (Bilder -> als Pfad/Beschreibung)
 - [ ] MessageTool: Agent kann aktiv Nachrichten senden
+- [ ] Unit-Tests fuer Phase F
 
 ---
 
@@ -126,6 +132,7 @@ Alles kommt als Text beim Core an.
 - [ ] nerve-log: Syslog beobachten, Anomalien erkennen
 - [ ] nerve-net: Netzwerk-Status, Erreichbarkeit
 - [ ] Nerves mit lokalem Modell fuer Vorverarbeitung (Ollama)
+- [ ] Unit-Tests fuer Phase G
 
 ---
 
@@ -137,6 +144,7 @@ Alles kommt als Text beim Core an.
 - [ ] Atem (1h): Was ist gerade los? Zusammenfassung
 - [ ] Tagesrueckblick: Was habe ich heute gelernt?
 - [ ] Events auf den Bus, Core entscheidet ob Aktion noetig
+- [ ] Unit-Tests fuer Phase H
 
 ---
 
