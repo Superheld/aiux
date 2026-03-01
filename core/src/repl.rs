@@ -29,7 +29,7 @@ impl Repl {
         if info.context_count > 0 {
             println!("  [+] {} Context-Datei(en)", info.context_count);
         }
-        println!("  [+] Memory-Tool (write/read/list)");
+        println!("  [+] Tools: soul, user, memory");
         if info.history_count > 0 {
             println!("  [+] {} History-Nachrichten", info.history_count);
         }
@@ -101,6 +101,10 @@ impl Repl {
                 Ok(Event::ClearHistory) => {
                     println!("History geloescht.\n");
                     print!("Du: ");
+                    io::stdout().flush().ok();
+                }
+                Ok(Event::ToolCall { name }) => {
+                    println!("\n[tool: {}]", name);
                     io::stdout().flush().ok();
                 }
                 Ok(Event::SystemMessage { text }) => {
