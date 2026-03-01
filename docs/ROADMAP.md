@@ -133,28 +133,29 @@ Status: **Abgeschlossen.**
 
 > context/*.md Dateien werden beim Start geladen. Der Agent hat Kontext.
 
-- [ ] Boot-Sequence: soul.md -> user.md -> context/*.md als Preamble
-- [ ] load_context_files() laedt alle .md aus memory/context/
-- [ ] Startup zeigt was geladen wurde
-- [ ] **Test: context/test.md anlegen, Agent weiss beim Start davon**
+- [x] Boot-Sequence: soul.md -> user.md -> context/*.md als Preamble
+- [x] load_context_files() laedt alle .md aus memory/context/
+- [x] Startup zeigt was geladen wurde
+- [x] **Test: context/test.md anlegen, Agent weiss beim Start davon**
 
 ### 4.2 Memory-Tool (Tool-Use)
 
 > Der Agent kann selbst in sein Gedaechtnis schreiben, lesen, auflisten.
 
-- [ ] MemoryTool implementieren (rig-core Tool trait)
-- [ ] Aktionen: write, read, list auf memory/context/
-- [ ] Sicherheit: kein Path-Traversal, nur einfache Dateinamen
-- [ ] **Test: Agent bitten sich etwas zu merken, neu starten, fragen ob er es weiss**
+- [x] MemoryTool implementieren (rig-core Tool trait)
+- [x] Aktionen: write, read, list auf memory/context/
+- [x] Sicherheit: kein Path-Traversal, nur einfache Dateinamen
+- [x] **Test: Agent bitten sich etwas zu merken, neu starten, fragen ob er es weiss**
 
 ### 4.3 Conversation-Persistenz
 
-> Was passiert mit der Chat-History? Geht sie verloren beim Beenden?
+> Konversation ueberlebt einen Neustart. Taegliche Rotation.
 
-- [ ] History in Datei speichern (memory/conversation.json oder aehnlich)
-- [ ] Beim Start letzte N Nachrichten laden
-- [ ] Entscheidung: wie viel History? Komplett? Zusammenfassung?
-- [ ] **Test: Gespraech fuehren, beenden, neu starten - Agent kennt den Kontext**
+- [x] History als JSON speichern (memory/conversation-YYYY-MM-DD.json)
+- [x] Taegliche Rotation: pro Tag eine eigene Datei
+- [x] Beim Start heutige History laden
+- [x] REPL-Befehl `clear` loescht heutige History
+- [x] **Test: Gespraech fuehren, beenden, neu starten - Agent kennt den Kontext**
 
 ### 4.4 RAG (Vektor-Suche)
 
@@ -336,4 +337,4 @@ Status: **Abgeschlossen.**
 
 ---
 
-*Letzte Aktualisierung: 2026-02-28*
+*Letzte Aktualisierung: 2026-03-01*
