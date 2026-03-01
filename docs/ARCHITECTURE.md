@@ -1,23 +1,281 @@
 # AIUX - Architektur
 
-> Wie AIUX gebaut ist und gebaut werden soll.
-> Aktueller Stand und Zielbild - klar getrennt.
+> Technische Beschreibung des Systems.
+> Was AIUX ist, wie es gebaut ist, welche Entscheidungen dahinter stehen.
 
 ---
 
-## Leitprinzip: Event-Driven Architecture
+## Leitprinzip: Koerper-Architektur
 
-AIUX ist ein event-getriebenes System. Alles was den Core erreicht, kommt als Event.
-Alles was der Core tut, erzeugt Events. Der MQTT-Bus ist das Nervensystem.
+AIUX ist nach dem Vorbild eines Koerpers gebaut. Nicht als 1:1 Kopie des
+Menschen, sondern als Inspiration. Die Architektur spiegelt biologische
+Strukturen wider, adaptiert fuer ein System dessen Gehirn ein Sprachmodell ist.
+
+### Das Gehirn
+
+Nicht ein Gehirn, sondern Schichten - wie beim Menschen:
 
 ```
-Wahrnehmung (Nerve)  ->  Event auf Bus  ->  Core denkt  ->  Handlung (Tool)
+┌─────────────────────────────────────────┐
+│  Grosshirn (Core/Main)                  │
+│  Bewusstes Denken. Das LLM.             │
+│  Sprache, Entscheidungen, Planung.      │
+├─────────────────────────────────────────┤
+│  Hippocampus (Memory)                   │
+│  Hoert mit, speichert automatisch.      │
+│  Unbewusste Gedaechtnisbildung.         │
+├─────────────────────────────────────────┤
+│  Hirnstamm (Scheduler)                  │
+│  Grundfunktionen, Rhythmen.             │
+│  Puls, Atem, Tagesrueckblick.           │
+└─────────────────────────────────────────┘
 ```
 
-**Aktueller Stand:** Noch nicht event-driven. Der Core ist eine synchrone REPL
-(stdin -> LLM -> stdout). Die Event-Architektur kommt mit Phase 6 (MQTT-Bus).
-Der Code sollte aber schon jetzt so strukturiert werden, dass Input als
-Abstraktion behandelt wird - nicht als hartcodiertes stdin.
+**Grosshirn** = der Core. Ein Sprachmodell das denkt, spricht, entscheidet.
+Alles was das Grosshirn erreicht, muss Sprache sein - es kann keine Bilder
+sehen, keine Toene hoeren. Andere Komponenten uebersetzen fuer es.
+
+**Hippocampus** = automatische Gedaechtnisbildung. Ein kleiner Prozess der
+auf dem Bus mithoert und wichtige Dinge speichert, ohne dass das Grosshirn
+bewusst entscheiden muss. "Bruce mag keine Emojis" wird automatisch gemerkt.
+Das MemoryTool bleibt als bewusstes Aufschreiben - aber das meiste passiert
+im Hintergrund.
+
+**Hirnstamm** = Scheduler. Rhythmen die ohne bewusstes Denken laufen.
+Puls, Atem, Tagesrueckblick.
+
+### Nerves (Fuehler)
+
+Nerves sind die Endpunkte zur Umwelt. Sie sind mit Hardware oder APIs
+verbunden (Dateisystem, Netzwerk, Kamera, Mikrofon, Telegram).
+
+Jeder Nerve hat seinen **eigenen Filter** (verteilter Thalamus).
+Der Nerve entscheidet selbst was relevant ist und was nicht.
+Dafuer kann er ein eigenes kleines Modell nutzen.
+
+**Alles kommt als Sprache beim Core an.** Egal ob Kamera, Syslog oder
+Telegram - der Nerve uebersetzt in Text. Das Grosshirn ist ein
+Sprachmodell und bekommt Sprache.
+
+```
+nerve-system: "CPU bei 95%, Prozess X verbraucht am meisten"
+nerve-vision: "Bewegung erkannt, Person vor der Tuer"
+nerve-file:   "Datei config.toml wurde geaendert"
+```
+
+### Chat ist kein Nerve
+
+Wenn Bruce redet, geht das **direkt** ins Grosshirn. Chat ist kein Sensor,
+es ist bewusste Kommunikation - wie ein Gespraech von Angesicht zu Angesicht.
+Kein Filter, keine Vorverarbeitung, kein Nerve dazwischen.
+
+Chat-Zugaenge (REPL, Telegram, Web) sind **Gateways** - Kanaele ueber die
+der Mensch direkt mit dem Gehirn spricht.
+
+### Tools (Haende)
+
+Tools sind aktive Handlungen. Das Grosshirn entscheidet bewusst etwas zu tun:
+- `MemoryTool` - bewusst etwas aufschreiben
+- `MessageTool` - Nachricht senden (Telegram, etc.)
+- `ShellTool` - Befehl ausfuehren
+
+Der Nerve hoert (Eingang), das Tool handelt (Ausgang).
+Wie Ohr und Mund - verschiedene Systeme fuer verschiedene Richtungen.
+
+### Bus (Nervensystem)
+
+Der Bus verbindet alles. Intern `tokio::sync::broadcast`,
+extern MQTT (Mosquitto) fuer Nerves.
+Siehe [EVENT-BUS.md](EVENT-BUS.md) fuer Details.
+
+---
+
+## Agent-Factory & Provider-Abstraktion
+
+### Problem
+
+rig-core unterstuetzt viele Provider (Anthropic, OpenAI/Mistral, Ollama, etc.),
+aber jeder erzeugt einen anderen Rust-Typ. `Agent<anthropic::Model>` und
+`Agent<openai::Model>` sind fuer den Compiler verschiedene Typen.
+
+### rig's Loesung
+
+rig bietet eine **Application-Layer Abstraktion**: ab `client.agent("model")`
+ist der Code bei allen Providern identisch. Preamble, Tools, Chat, Streaming -
+alles gleich. Nur die Client-Erstellung (eine Zeile) ist provider-spezifisch:
+
+```rust
+// Anthropic
+let client = anthropic::Client::from_env();
+
+// Mistral (OpenAI-kompatible API)
+let client = openai::Client::builder()
+    .base_url("https://api.mistral.ai/v1")
+    .api_key(&key).build();
+
+// Ollama (lokal)
+let client = ollama::Client::new(Nothing);
+
+// Ab hier identisch fuer alle Provider:
+let agent = client.agent(&model)
+    .preamble(&preamble)
+    .tool(memory_tool)
+    .build();
+```
+
+### Agent-Factory
+
+Eine Factory-Funktion liest die Config und baut den richtigen Agent:
+
+1. Config bestimmt Provider + Modell
+2. Factory matched auf den Provider-String und erstellt den passenden Client
+3. Ab `client.agent(...)` ist der Code identisch (rig's Application Layer)
+4. Der fertige Agent wird an seinen Bus-Task gebunden -
+   der generische Typ bleibt intern
+
+```
+Config (TOML)                Factory                     Bus
+┌──────────────┐      ┌──────────────────┐       ┌──────────────┐
+│ provider     │─────>│ match provider { │──────>│ Events rein  │
+│ model        │      │   "anthropic"    │       │ Events raus  │
+│ temperature  │      │   "mistral"      │       │ Typ ist weg  │
+│ api_key_env  │      │   "ollama"       │       └──────────────┘
+└──────────────┘      └──────────────────┘
+```
+
+Der Bus ist die Abstraktionsschicht. Kein eigener Adapter-Layer noetig -
+der Agent-Typ lebt nur innerhalb seines Tasks, nach aussen gibt es nur Events.
+
+### Config-Struktur
+
+Zwei Ebenen: System-Config (geteilt) und Rollen-Config (pro Rolle).
+
+```toml
+# home/config.toml - Systemebene
+# Definiert verfuegbare Provider. API-Keys kommen aus Env-Variablen.
+
+[providers.anthropic]
+api_key_env = "ANTHROPIC_API_KEY"
+
+[providers.mistral]
+api_key_env = "MISTRAL_API_KEY"
+
+[providers.ollama]
+# Kein API-Key noetig, laeuft lokal
+```
+
+```toml
+# home/roles/main/config.toml - Rollenebene
+provider = "anthropic"
+model = "claude-sonnet-4-5-20250929"
+temperature = 0.7
+```
+
+Jede Rolle waehlt aus den verfuegbaren Providern.
+Der Agent wird zur Laufzeit aus den Zutaten (Client + Preamble + Tools) gebaut -
+Aenderungen an der Config erfordern kein Rekompilieren.
+
+---
+
+## Rollen
+
+Der Agent hat nicht eine feste Aufgabe, sondern nimmt verschiedene Rollen ein.
+Jede Rolle ist eine eigenstaendige Agent-Instanz mit eigener Config, eigenem
+Memory und eigenen Nerves. Rollen koennen parallel laufen.
+
+### Was eine Rolle definiert
+
+- **role.md** - Wer bin ich in dieser Rolle, was darf ich, was nicht
+- **Config** - Welches Modell, welche Temperature, welche Nerves
+- **Memory** - Kontextspezifisches Wissen fuer diese Rolle
+- **Nerves** - Auf welche Kanaele hoert diese Rolle, welche ignoriert sie
+
+### Was IMMER gleich bleibt
+
+- **soul.md** - Die Identitaet. Egal welche Rolle, der Agent bleibt derselbe.
+- **user.md** - Der Mensch. Jede Rolle kennt Bruce.
+
+Die Preamble einer Rolle: `soul + user + role + role-memory + role-context`.
+
+### Main ist das Gehirn
+
+`main` ist keine Rolle wie die anderen - es ist das Gehirn, der Boss.
+Andere Rollen (Assistent, Kuenstler, System-Admin) sind Instanzen die
+`main` starten, steuern und beenden kann.
+
+Kommunikation zwischen Rollen laeuft ueber den Bus:
+- `main` kann eine Rolle interviewen ("Was hast du heute gemacht?")
+- Eine Rolle kann Feedback an `main` geben ("Ich brauche Zugriff auf X")
+- `main` entscheidet, delegiert, koordiniert
+
+### Beispiel: Sysadmin-Rolle
+
+Der Sysadmin laeuft dauerhaft im Hintergrund. Braucht kein grosses Modell -
+ein kleines lokales (Ollama) reicht. Hoert auf System-Nerves, meldet sich
+nur bei `main` wenn es relevant ist.
+
+```toml
+# roles/sysadmin/config.toml
+provider = "ollama"
+model = "qwen2.5:7b"
+temperature = 0.3
+nerves = ["nerve-system", "nerve-log", "nerve-net"]
+```
+
+```toml
+# roles/main/config.toml
+provider = "anthropic"
+model = "claude-sonnet-4-5-20250929"
+temperature = 0.7
+```
+
+Typischer Ablauf:
+1. `sysadmin` erkennt ueber `nerve-system`: Disk 90% voll
+2. Publiziert Event auf den Bus: "Warnung: Disk 90% voll"
+3. `main` entscheidet: Bruce stoeren oder selbst handeln?
+4. `main` delegiert an `sysadmin`: "Loesch die alten Logs"
+5. `sysadmin` fuehrt aus und meldet Ergebnis
+
+Der Mensch merkt davon nichts - ausser `main` entscheidet dass es wichtig ist.
+
+### Rollenwechsel im Terminal
+
+Eine REPL, mehrere Rollen. Der Prompt zeigt die aktive Rolle:
+
+```
+main> hallo
+AIUX: hey, was gibt's?
+
+main> /role assistent
+assistent> hilf mir bei X
+AIUX: klar, ...
+
+assistent> /role main
+main> /roles
+  * main        (aktiv)
+    assistent   (laeuft)
+    sysadmin    (laeuft)
+```
+
+Technisch: Die REPL hat einen "aktive Rolle" State und taggt
+`UserInput` Events mit der Rolle. Nur der angesprochene Core antwortet.
+Hintergrund-Rollen laufen weiter auf ihren Nerves.
+
+### Config-Trennung
+
+Die Systemkonfiguration (Provider, API-Keys) gehoert nicht in den
+Arbeitsbereich einer Rolle. Zwei Ebenen:
+
+- **Systemebene** (`home/config.toml`) - Provider-Definitionen, API-Keys
+- **Rollenebene** (`home/roles/<name>/config.toml`) - Modell, Temperature, Nerves
+
+Die Identitaet (soul.md, user.md) wird immer geladen, unabhaengig von der Rolle.
+
+### Conversations sind pro Rolle
+
+Conversations (conversation-*.json) sind Tages-History pro Rolle.
+Jede Rolle hat ihre eigenen Gespraeche - wenn der Mensch mit dem
+Assistenten redet, ist das ein anderer Kontext als mit `main`.
 
 ---
 
@@ -33,27 +291,30 @@ Patterns die wir bewusst einsetzen (nicht was Frameworks mitbringen):
 | **Composite** | Preamble Assembly | System-Prompt aus Teilen zusammengebaut (soul + user + context). Neue Teile koennen dazukommen. |
 | **Command** | Tool-Use | Jeder Tool-Call ist ein serialisiertes Command-Objekt (action + parameter). Neue Tools = neue Commands. |
 
-### Geplant
+### Nerves & Bus
 
-| Pattern | Wann | Was es tut |
-|---------|------|------------|
-| **Observer** | Phase 6 | Nerves beobachten passiv, melden nur Relevantes. |
-| **Publish/Subscribe** | Phase 6 | Nerves publishen, Core subscribt. Entkoppelt ueber MQTT. |
-| **Mediator** | Phase 6 | Der Bus vermittelt. Komponenten kennen nur den Bus, nicht einander. |
-| **Strategy** | Phase 6 | Jeder Nerve hat gleiche Schnittstelle, eigene Beobachtungs-Strategie. |
+| Pattern | Wo | Was es tut |
+|---------|----|------------|
+| **Observer** | Nerves | Nerves beobachten passiv, melden nur Relevantes. |
+| **Publish/Subscribe** | MQTT Bus | Nerves publishen, Core subscribt. Entkoppelt ueber MQTT. |
+| **Mediator** | Bus | Der Bus vermittelt. Komponenten kennen nur den Bus, nicht einander. |
+| **Strategy** | Nerves | Jeder Nerve hat gleiche Schnittstelle, eigene Beobachtungs-Strategie. |
+| **Factory** | Agent-Factory | Baut Agents anhand Config. Provider-Typ bleibt intern. |
 
 ### Biologische Metaphern als Architektur
 
 Die Metaphern sind nicht Deko - sie SIND die Architektur-Entscheidungen:
 
-| Metapher | Pattern | Konsequenz |
-|----------|---------|------------|
-| Sinne (Nerves) | Observer | Passiv, filternd, dauerhaft |
-| Nervensystem (Bus) | Pub/Sub + Mediator | Entkoppelt, asynchron |
-| Gedaechtnis (Memory) | Repository | Abstrahiert, erweiterbar |
-| Seele (soul.md) | Configuration as Identity | Persoenlichkeit = Konfiguration |
-| Haende (Tools) | Command | Ausfuehrung als Objekt |
-| Rhythmen (Scheduler) | Scheduled Jobs | Puls, Atem, Tagesrueckblick |
+| Metapher | Komponente | Pattern | Konsequenz |
+|----------|-----------|---------|------------|
+| Grosshirn | Core/Main (LLM) | - | Bewusstes Denken, alles als Sprache |
+| Hippocampus | Memory (Hintergrund) | Observer | Automatisches Speichern, hoert mit |
+| Hirnstamm | Scheduler | Scheduled Jobs | Rhythmen ohne bewusstes Denken |
+| Fuehler (Nerves) | Nerves | Observer + Strategy | Vorverarbeitung, eigener Filter |
+| Nervensystem | Bus | Pub/Sub + Mediator | Entkoppelt, asynchron |
+| Haende | Tools | Command | Bewusste Handlung nach aussen |
+| Seele | soul.md | Config as Identity | Persoenlichkeit = Konfiguration |
+| Gespraech | Chat/Gateway | - | Direkter Zugang zum Grosshirn, kein Nerve |
 
 ---
 
@@ -61,132 +322,105 @@ Die Metaphern sind nicht Deko - sie SIND die Architektur-Entscheidungen:
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Gateway                                         │
-│  SSH, Telegram, Web, App (Plugin-Architektur)    │
+│  Chat (direkter Zugang zum Grosshirn)            │
+│  REPL, Telegram, Web, SSH                        │
 └──────────────────────┬──────────────────────────┘
+                       │ kein Nerve, direkt
                        │
 ┌──────────────────────▼──────────────────────────┐
-│  aiux-core (Rust Daemon)                         │
+│  aiux-core (Gehirn)                              │
 │                                                  │
-│  LLM-Client (rig-core)                           │
-│  - Anthropic Claude (API)                        │
-│  - Streaming, Tool-Use, Function Calling         │
-│  - soul.md als System-Prompt (Preamble)          │
-│  - user.md + context als Kontext                 │
+│  Grosshirn (Core/Main)                           │
+│  - LLM (rig-core, Provider per Config)           │
+│  - Rollen (eigene Instanzen, eigene Config)      │
+│  - Tools (Haende: Memory, Shell, Messages)       │
 │                                                  │
-│  Scheduler (tokio-cron-scheduler)                │
+│  Hippocampus (automatisches Memory)              │
+│  - Hoert auf dem Bus mit                         │
+│  - Speichert automatisch was wichtig ist         │
+│                                                  │
+│  Hirnstamm (Scheduler)                           │
 │  - Puls (5 Min), Atem (1h), Tag, Woche          │
 │                                                  │
-│  Memory                                          │
-│  - Kurzzeit: Markdown-Dateien (context/)         │
-│  - Konversation: JSON pro Tag                    │
-│  - Langzeit: SQLite + RAG (rig-sqlite)           │
-│                                                  │
-│  Bus-Client (rumqttc)                            │
-│  - MQTT Subscribe auf aiux/nerves/*              │
-│  - Events empfangen, verarbeiten, reagieren      │
-│                                                  │
-│  Tools (rig Tool-Use)                            │
-│  - Native Rust Tools (hardcoded im Core)         │
-│  - Shell-Execution                               │
 └──────────────────┬───────────────────────────────┘
-                   │ MQTT publish/subscribe
-                   │
-        ┌──────────▼──────────┐
-        │  Mosquitto (MQTT)    │
-        │  Event-Bus           │
-        └──────────┬──────────┘
+                   │ Bus (Nervensystem)
+                   │ intern: tokio::broadcast
+                   │ extern: MQTT (Mosquitto)
                    │
 ┌──────────────────▼───────────────────────────────┐
-│  aiux-nerves                                      │
+│  Nerves (Fuehler zur Umwelt)                      │
 │                                                   │
-│  Passive, dauerhafte Beobachtung.                 │
-│  Filtern selbst, melden nur Relevantes.           │
+│  Jeder Nerve hat eigenen Filter (Thalamus).       │
+│  Vorverarbeitung vor Ort, meldet als Text.        │
 │                                                   │
-│  nerve-input    Direkte Interaktion               │
-│  nerve-messages Eingehende Nachrichten            │
 │  nerve-system   CPU, RAM, Disk, Temperatur        │
 │  nerve-log      Syslog                            │
 │  nerve-net      Netzwerk                          │
 │  nerve-file     Dateisystem-Events                │
-│  nerve-audio    Mikrofon (spaeter)                │
-│  nerve-vision   Kamera (spaeter)                  │
+│  nerve-audio    Mikrofon                          │
+│  nerve-vision   Kamera                            │
 │                                                   │
-│  Lokale Inference: tract (ONNX, Pure Rust)        │
-│  Lokale LLMs: llama-cpp-2 (optional, offline)     │
-└───────────────────────────────────────────────────┘
+│  Lokale Modelle fuer Vorverarbeitung:             │
+│  tract (ONNX), Ollama, llama-cpp-2                │
+└──────────────────┬───────────────────────────────┘
                    │
 ┌──────────────────▼───────────────────────────────┐
-│  Betriebssystem                                   │
-│  Primaer: Alpine Linux (Raspi)                    │
-│  Auch: jedes Linux, macOS, Windows                │
+│  Betriebssystem / Hardware                        │
+│  Alpine Linux (Raspi), jedes Linux, macOS         │
 └──────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Aktueller Stand (nach Phase 4.3)
+## Komponenten
 
-Was tatsaechlich gebaut und lauffaehig ist:
+### Core (`core.rs`)
 
-```
-┌──────────────────────────────────────────────────┐
-│  aiux-core (REPL, kein Daemon)                    │
-│                                                   │
-│  LLM-Client (rig-core 0.31)                      │
-│  - Anthropic Claude (API, Streaming)              │
-│  - Tool-Use (MemoryTool)                          │
-│                                                   │
-│  Preamble (Boot-Sequence)                         │
-│  - soul.md -> user.md -> context/*.md             │
-│                                                   │
-│  Memory                                           │
-│  - Kurzzeit: context/*.md (Agent liest/schreibt)  │
-│  - Konversation: conversation-YYYY-MM-DD.json     │
-│                                                   │
-│  REPL                                             │
-│  - stdin -> LLM -> stdout (direkt, kein Bus)      │
-│  - Befehle: quit, exit, clear                     │
-└──────────────────────────────────────────────────┘
-```
+Das Gehirn. Kapselt den rig-Agent, Preamble und History.
+Subscribt auf `UserInput` Events, publiziert `ResponseToken`/`ResponseComplete`.
+Baut den Agent bei jedem Input neu (so greifen Preamble-Aenderungen sofort).
 
-**Nicht gebaut:** Bus, Nerves, Scheduler, Daemon, Gateway, Shell-Tool,
-RAG/Vector-Suche, Skills, Journal.
+### REPL (`repl.rs`)
+
+Kommandozeile. Liest von stdin, publiziert `UserInput` Events.
+Empfaengt Response-Events und gibt sie auf stdout aus.
+Austauschbar durch Gateway (HTTP, Telegram, etc.).
+
+### Event-Bus (`bus.rs`)
+
+Interner `tokio::sync::broadcast` Channel. Verteilt Events an alle Subscriber.
+Siehe [EVENT-BUS.md](EVENT-BUS.md).
+
+### Agent-Factory
+
+Baut Agents anhand der Config. Matched auf Provider-String,
+erstellt den passenden Client, bindet den Agent an den Bus.
+
+### main.rs
+
+Nur Verdrahtung: Bus erstellen, Core und REPL anschliessen, laufen lassen.
 
 ---
 
 ## Tech-Stack
 
-### Eingebaut (in Cargo.toml)
-
-| Crate | Version | Was |
-|-------|---------|-----|
-| **rig-core** | 0.31 | LLM Framework (Anthropic, Streaming, Tool-Use) |
-| **tokio** | 1 | Async Runtime |
-| **serde** + **serde_json** | 1 | Serialisierung (History, Tool-Parameter) |
-| **schemars** | 1 | JSON Schema fuer Tool-Definitionen |
-| **chrono** | 0.4 | Datum fuer taegliche History-Rotation |
-| **thiserror** | 2 | Error-Typen (MemoryTool) |
-| **anyhow** | 1 | Error-Handling (main) |
-| **futures** | 0.3 | Stream-Verarbeitung (Streaming-Ausgabe) |
-| **dotenvy** | 0.15 | .env laden (API-Key) |
-
-### Geplant (noch nicht in Cargo.toml)
-
-| Crate | Phase | Was |
-|-------|-------|-----|
-| **rig-sqlite** | 4.4 | Vector Store (SQLite + sqlite-vec) fuer RAG |
-| **rumqttc** | 6 | MQTT Client fuer Event-Bus |
-| **tokio-cron-scheduler** | 5 | Rhythmen (Puls, Atem, Tag, Woche) |
-| **tract-onnx** | Fernziel | Lokale ONNX Inference auf Raspi |
-| **llama-cpp-2** | Fernziel | Lokale LLMs (Offline-Fallback) |
-
-### Infrastruktur
-
-| Komponente | Status | Was |
-|-----------|--------|-----|
-| **Mosquitto** | geplant (Phase 6) | MQTT Broker (Event-Bus) |
-| **SQLite** | geplant (Phase 4.4) | Langzeit-Memory + Vector Store |
+| Crate / Komponente | Was |
+|--------------------|-----|
+| **rig-core** | LLM Framework (Multi-Provider, Streaming, Tool-Use) |
+| **tokio** | Async Runtime |
+| **serde** + **serde_json** | Serialisierung (History, Tool-Parameter) |
+| **schemars** | JSON Schema fuer Tool-Definitionen |
+| **chrono** | Datum fuer taegliche History-Rotation |
+| **thiserror** | Error-Typen (MemoryTool) |
+| **anyhow** | Error-Handling (main) |
+| **futures** | Stream-Verarbeitung (Streaming-Ausgabe) |
+| **dotenvy** | .env laden (API-Keys) |
+| **rig-sqlite** | Vector Store (SQLite + sqlite-vec) fuer RAG |
+| **rumqttc** | MQTT Client fuer externen Event-Bus |
+| **tokio-cron-scheduler** | Rhythmen (Puls, Atem, Tag, Woche) |
+| **tract-onnx** | Lokale ONNX Inference auf Raspi |
+| **Mosquitto** | MQTT Broker (externes Nervensystem) |
+| **SQLite** | Langzeit-Memory + Vector Store |
 
 ---
 
@@ -202,22 +436,22 @@ Beim Start des Core wird der System-Prompt (Preamble) zusammengebaut:
 
 Danach wird die Tages-History geladen (`conversation-YYYY-MM-DD.json`).
 
-**Geplant (spaeter):**
-- journal/heute + journal/gestern in die Boot-Sequence (Phase 9)
-- skills/*.md als zusaetzlicher Kontext (Phase 8)
-- environment.md mit System-Infos (Phase 5)
+Spaetere Erweiterungen der Boot-Sequence:
+- journal/heute + journal/gestern (Reflexion)
+- skills/*.md als zusaetzlicher Kontext
+- environment.md mit System-Infos
 
 ---
 
 ## Memory-Modell
 
-Drei Speicherformen, zwei davon eingebaut:
+Drei Speicherformen:
 
-| Typ | Format | Lebensdauer | Status |
-|-----|--------|-------------|--------|
-| **Kurzzeit** | context/*.md | Permanent, vom Agent verwaltet | eingebaut |
-| **Konversation** | conversation-YYYY-MM-DD.json | Pro Tag, REPL-History | eingebaut |
-| **Langzeit** | SQLite + RAG (rig-sqlite) | Permanent, durchsuchbar | geplant (Phase 4.4) |
+| Typ | Format | Lebensdauer |
+|-----|--------|-------------|
+| **Kurzzeit** | context/*.md | Permanent, vom Agent verwaltet |
+| **Konversation** | conversation-YYYY-MM-DD.json | Pro Tag, REPL-History |
+| **Langzeit** | SQLite + RAG (rig-sqlite) | Permanent, durchsuchbar |
 
 **Kurzzeit:** Der Agent schreibt/liest hier ueber das MemoryTool (write/read/list).
 Wird beim naechsten Start als Teil der Preamble geladen.
@@ -225,8 +459,8 @@ Wird beim naechsten Start als Teil der Preamble geladen.
 **Konversation:** Automatisch gespeichert nach jedem Turn. Pro Tag eine neue Datei.
 Beim Start wird nur der heutige Tag geladen. `clear` loescht den heutigen Tag.
 
-**Langzeit:** Noch nicht gebaut. Soll semantische Suche ueber alle Erinnerungen
-ermoeglichen (Embeddings + Vektor-Suche statt alles in den Preamble zu laden).
+**Langzeit:** Semantische Suche ueber alle Erinnerungen
+(Embeddings + Vektor-Suche statt alles in den Preamble zu laden).
 
 ---
 
@@ -239,18 +473,30 @@ aiux/
 ├── core/                  # aiux-core
 │   ├── Cargo.toml
 │   └── src/
-│       ├── main.rs        # REPL, Boot-Sequence, History
-│       └── memory.rs      # MemoryTool (Tool-Use)
+│       ├── main.rs        # Verdrahtung (Bus + Core + REPL)
+│       ├── events.rs      # Event-Typen (UserInput, Response, Shutdown)
+│       ├── bus.rs          # Interner Event-Bus (broadcast)
+│       ├── core.rs         # Gehirn (rig-Agent, History, Preamble)
+│       ├── config.rs       # Agent-Config (Provider, Modell, Temperature)
+│       ├── repl.rs         # Kommandozeile (stdin/stdout ueber Bus)
+│       └── memory.rs       # MemoryTool (Tool-Use)
 ├── nerve/                 # aiux-nerve (Platzhalter, nicht implementiert)
 │   ├── Cargo.toml
 │   └── src/main.rs
 ├── home/                  # Agent-Home (wird deployed)
+│   ├── config.toml        # System-Config (Provider, API-Keys)
 │   ├── memory/
-│   │   ├── soul.md        # Persoenlichkeit (= System-Prompt)
-│   │   ├── user.md        # Wissen ueber den Menschen
-│   │   └── context/       # Agent-Notizen (Laufzeit, vom Agent beschreibbar)
-│   ├── skills/            # Expertise als Markdown (geplant, Phase 8)
-│   └── tools/             # Tool-Definitionen (geplant, Fernziel)
+│   │   ├── soul.md        # Persoenlichkeit (geteilt, immer geladen)
+│   │   └── user.md        # Wissen ueber den Menschen (geteilt)
+│   └── roles/
+│       ├── main/
+│       │   ├── config.toml    # Modell, Temperature, Nerves
+│       │   ├── role.md        # Rollenbeschreibung
+│       │   └── memory/        # Rollen-Memory (context/*.md)
+│       └── <weitere>/
+│           ├── config.toml
+│           ├── role.md
+│           └── memory/
 ├── scripts/
 │   ├── install.sh         # System-Installer
 │   └── deploy.sh          # home/ auf Raspi deployen
@@ -260,20 +506,30 @@ aiux/
 ```
 
 Laufzeit-Dateien (nicht im Repo, in .gitignore):
-- `home/memory/conversation-*.json` - Tages-History
+- `home/roles/*/conversation-*.json` - Tages-History pro Rolle
 
 ### Auf dem Zielsystem (Zielbild)
 
 ```
 /home/claude/
+├── config.toml                  # System-Config (Provider)
 ├── memory/
-│   ├── soul.md                  # Persoenlichkeit
-│   ├── user.md                  # Wissen ueber den Menschen
-│   ├── context/                 # Agent-Notizen
-│   ├── conversation-*.json      # Tages-History
-│   ├── journal/                 # Lerntagebuch (geplant, Phase 9)
-│   └── memory.db               # Langzeit-SQLite (geplant, Phase 4.4)
-├── skills/                      # Expertise (geplant, Phase 8)
+│   ├── soul.md                  # Persoenlichkeit (geteilt)
+│   ├── user.md                  # Wissen ueber den Menschen (geteilt)
+│   └── memory.db               # Langzeit-SQLite (geplant)
+├── roles/
+│   ├── main/
+│   │   ├── config.toml          # Modell, Temperature
+│   │   ├── role.md              # Rollenbeschreibung
+│   │   ├── memory/              # Rollen-Context
+│   │   └── conversation-*.json  # Tages-History
+│   ├── sysadmin/
+│   │   ├── config.toml          # Ollama, kleines Modell
+│   │   ├── role.md
+│   │   ├── memory/
+│   │   └── conversation-*.json
+│   └── .../
+├── skills/                      # Expertise (geplant)
 └── nerves/                      # Nerve-Programme (geplant, Phase 6)
     └── <name>/
         ├── nerve.toml

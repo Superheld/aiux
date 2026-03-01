@@ -6,24 +6,34 @@ Embodied AI - ein OS in dem eine KI lebt, nicht eine App auf einem OS.
 Das Linux-System ist der Koerper, der Agent lernt ihn zu spueren und zu nutzen.
 Siehe docs/PRD.md (Vision), docs/ARCHITECTURE.md (Technik), docs/ROADMAP.md (Phasen).
 
-## Aktueller Stand (nach Phase 4.3)
+## Aktueller Stand
 
 Noch ein Kopf ohne Leib: REPL mit Memory, kein Daemon, keine Sinne.
+Aber: Event-Bus steht, Code ist modular, Provider per Config steuerbar.
 
-- **core/src/main.rs** - REPL, Boot-Sequence, History-Persistenz
+- **core/src/main.rs** - Verdrahtung (Bus + Core + REPL)
+- **core/src/core.rs** - Gehirn (rig-Agent, History, Preamble, Agent-Factory)
+- **core/src/bus.rs** - Interner Event-Bus (tokio::sync::broadcast)
+- **core/src/events.rs** - Event-Typen (UserInput, ResponseToken, etc.)
+- **core/src/repl.rs** - Kommandozeile (stdin/stdout ueber Bus)
+- **core/src/config.rs** - Agent-Config aus home/config.toml
 - **core/src/memory.rs** - MemoryTool (write/read/list auf context/)
-- **nerve/** - Platzhalter, nicht implementiert
+- **home/config.toml** - Provider, Modell, Temperature
 - **home/memory/** - soul.md, user.md, context/, conversation-*.json
+- **nerve/** - Platzhalter, nicht implementiert
 
 ## Architektur-Regeln
 
-- **EDA ist das Ziel.** Aktuell synchrone REPL, aber Code so strukturieren
-  dass Input als Abstraktion behandelt wird - nicht als hartcodiertes stdin.
-- **Koerper-Metapher ist Architektur.** Nerves = Sinne, Tools = Haende,
-  Memory = Gedaechtnis, Soul = Identitaet. Keine Deko, sondern Design-Entscheidungen.
-- **Trennung:** Core kennt keine Nerves direkt. Kommunikation nur ueber Bus (MQTT).
+- **Koerper-Architektur.** Das System ist nach biologischem Vorbild gebaut:
+  - **Grosshirn** = Core/LLM. Denkt in Sprache. Alles muss als Text ankommen.
+  - **Hippocampus** = automatisches Memory. Hoert mit, speichert unbewusst.
+  - **Nerves** = Fuehler zur Umwelt. Eigener Filter, Vorverarbeitung, melden als Text.
+  - **Tools** = Haende. Bewusste Handlungen nach aussen.
+  - **Chat** = direkter Zugang zum Grosshirn. Kein Nerve, kein Filter.
+- **Trennung:** Core kennt keine Nerves direkt. Kommunikation nur ueber Bus.
+- **Rollen:** Parallele Agent-Instanzen mit eigener Config/Memory. Main ist der Boss.
 - **Tools sind Rust-Code im Core.** Kein Plugin-System. Kommt spaeter.
-- **Preamble = soul.md + user.md + context/*.md.** Reihenfolge ist wichtig.
+- **Preamble = soul.md + user.md + role.md + context/*.md.** Reihenfolge ist wichtig.
 
 ## Coding-Regeln
 
