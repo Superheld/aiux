@@ -380,10 +380,18 @@ Das Gehirn. Kapselt den rig-Agent, Preamble und History.
 Subscribt auf `UserInput` Events, publiziert `ResponseToken`/`ResponseComplete`.
 Baut den Agent bei jedem Input neu (so greifen Preamble-Aenderungen sofort).
 
+Interne Hilfsmethoden:
+- `simple_chat()` - Non-streaming, tool-freier LLM-Call fuer interne Aufgaben
+- `history_as_text()` - History als lesbaren Text (fuer Kompaktifizierung)
+- `compact_history()` - Fasst die History zusammen wenn Token-Budget erreicht
+- `history_for_agent()` - Gibt nur den relevanten Teil der History zurueck (ab letztem Kompaktifizierungs-Marker)
+
 ### REPL (`repl.rs`)
 
 Kommandozeile. Liest von stdin, publiziert `UserInput` Events.
 Empfaengt Response-Events und gibt sie auf stdout aus.
+Zeigt `SystemMessage` Events als `[info]` an.
+Aendert den Prompt waehrend Kompaktifizierung (`[kompaktifiziere...]`).
 Austauschbar durch Gateway (HTTP, Telegram, etc.).
 
 ### Event-Bus (`bus.rs`)
@@ -458,6 +466,9 @@ Wird beim naechsten Start als Teil der Preamble geladen.
 
 **Konversation:** Automatisch gespeichert nach jedem Turn. Pro Tag eine neue Datei.
 Beim Start wird nur der heutige Tag geladen. `clear` loescht den heutigen Tag.
+Bei hoher Token-Nutzung (`compact_threshold` in Config) wird die History automatisch
+zusammengefasst (`[KOMPAKTIFIZIERUNG]` Marker). Der Agent sieht nur den Teil ab dem
+letzten Marker, die volle History bleibt in der Datei erhalten.
 
 **Langzeit:** Semantische Suche ueber alle Erinnerungen
 (Embeddings + Vektor-Suche statt alles in den Preamble zu laden).
@@ -474,7 +485,7 @@ aiux/
 │   ├── Cargo.toml
 │   └── src/
 │       ├── main.rs        # Verdrahtung (Bus + Core + REPL)
-│       ├── events.rs      # Event-Typen (UserInput, Response, Shutdown)
+│       ├── events.rs      # Event-Typen (UserInput, Response, SystemMessage, Compacting, etc.)
 │       ├── bus.rs          # Interner Event-Bus (broadcast)
 │       ├── core.rs         # Gehirn (rig-Agent, History, Preamble)
 │       ├── config.rs       # Agent-Config (Provider, Modell, Temperature)
@@ -485,6 +496,7 @@ aiux/
 │   └── src/main.rs
 ├── home/                  # Agent-Home (wird deployed)
 │   ├── config.toml        # System-Config (Provider, API-Keys)
+│   ├── .system/           # Interne Prompts (compact-preamble.md)
 │   ├── memory/
 │   │   ├── soul.md        # Persoenlichkeit (geteilt, immer geladen)
 │   │   └── user.md        # Wissen ueber den Menschen (geteilt)

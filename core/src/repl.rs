@@ -103,6 +103,19 @@ impl Repl {
                     print!("Du: ");
                     io::stdout().flush().ok();
                 }
+                Ok(Event::SystemMessage { text }) => {
+                    println!("\n[{}]", text);
+                    io::stdout().flush().ok();
+                }
+                Ok(Event::Compacting) => {
+                    print!("\n[kompaktifiziere...] ");
+                    io::stdout().flush().ok();
+                }
+                Ok(Event::Compacted) => {
+                    println!("fertig.\n");
+                    print!("Du: ");
+                    io::stdout().flush().ok();
+                }
                 Ok(Event::Shutdown) => break,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     eprintln!("REPL: {} Events verpasst", n);
