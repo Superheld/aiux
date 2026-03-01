@@ -25,4 +25,13 @@ pub enum Event {
     // -- REPL-Befehle --
     /// History loeschen
     ClearHistory,
+
+    /// System-Info fuer den User (kein LLM-Content, nur Anzeige)
+    SystemMessage { text: String },
+
+    /// Kompaktifizierung gestartet
+    Compacting,
+
+    /// Kompaktifizierung abgeschlossen
+    Compacted,
 }

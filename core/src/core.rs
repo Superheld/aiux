@@ -12,6 +12,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use rig::agent::MultiTurnStreamItem;
 use rig::client::{CompletionClient, ProviderClient};
+use rig::completion::{Chat, Usage};
 use rig::message::Message;
 use rig::providers::{anthropic, mistral, ollama};
 use rig::streaming::{StreamedAssistantContent, StreamingChat};
@@ -23,10 +24,12 @@ use crate::memory::MemoryTool;
 
 /// Macro: Streamt die Agent-Antwort und sammelt den Text.
 /// Wird pro Provider-Arm genutzt, weil jeder einen eigenen Typ erzeugt.
+/// Gibt (String, Option<Usage>) zurueck.
 macro_rules! stream_agent {
     ($agent:expr, $input:expr, $history:expr, $bus:expr) => {{
         let mut stream = $agent.stream_chat($input, $history).await;
         let mut response_text = String::new();
+        let mut usage: Option<Usage> = None;
 
         while let Some(chunk) = stream.next().await {
             match chunk {
@@ -38,8 +41,11 @@ macro_rules! stream_agent {
                     });
                     response_text.push_str(&text.text);
                 }
+                Ok(MultiTurnStreamItem::FinalResponse(final_resp)) => {
+                    usage = Some(final_resp.usage());
+                }
                 Ok(_) => {
-                    // ToolCall, Final, etc.
+                    // ToolCall, etc.
                 }
                 Err(e) => {
                     eprintln!("\nFehler: {}", e);
@@ -48,7 +54,7 @@ macro_rules! stream_agent {
             }
         }
 
-        response_text
+        (response_text, usage)
     }};
 }
 
@@ -134,7 +140,7 @@ impl Core {
 
         // Stream-Verarbeitung passiert im match-Block,
         // weil jeder Provider einen eigenen Rust-Typ erzeugt.
-        let response_text = match self.config.provider.as_str() {
+        let (response_text, usage) = match self.config.provider.as_str() {
             "anthropic" => {
                 let client = anthropic::Client::from_env();
                 let agent = client
@@ -143,7 +149,7 @@ impl Core {
                     .temperature(self.config.temperature)
                     .tool(memory_tool)
                     .build();
-                stream_agent!(agent, input, self.history.clone(), self.bus)
+                stream_agent!(agent, input, self.history_for_agent(), self.bus)
             }
             "mistral" => {
                 let client = mistral::Client::from_env();
@@ -153,7 +159,7 @@ impl Core {
                     .temperature(self.config.temperature)
                     .tool(memory_tool)
                     .build();
-                stream_agent!(agent, input, self.history.clone(), self.bus)
+                stream_agent!(agent, input, self.history_for_agent(), self.bus)
             }
             "ollama" => {
                 let client: ollama::Client = ollama::Client::new(rig::client::Nothing).map_err(|e| {
@@ -165,7 +171,7 @@ impl Core {
                     .temperature(self.config.temperature)
                     .tool(memory_tool)
                     .build();
-                stream_agent!(agent, input, self.history.clone(), self.bus)
+                stream_agent!(agent, input, self.history_for_agent(), self.bus)
             }
             other => {
                 anyhow::bail!("Unbekannter Provider: '{}'", other);
@@ -176,6 +182,15 @@ impl Core {
             full_text: response_text.clone(),
         });
 
+        if let Some(ref u) = usage {
+            self.bus.publish(Event::SystemMessage {
+                text: format!(
+                    "usage: input={} output={} cached={}",
+                    u.input_tokens, u.output_tokens, u.cached_input_tokens
+                ),
+            });
+        }
+
         // History aktualisieren und persistieren (nur wenn Antwort nicht leer)
         if !response_text.is_empty() {
             self.history.push(Message::user(input));
@@ -183,9 +198,143 @@ impl Core {
             save_history(&self.home, &self.history);
         }
 
+        // Kompaktifizierung pruefen
+        if let Some(ref u) = usage {
+            let window = context_window_size(&self.config.model, self.config.context_window);
+            let threshold = self.config.compact_threshold.unwrap_or(80);
+            if threshold > 0 && should_compact(u.input_tokens, window, threshold) {
+                self.bus.publish(Event::Compacting);
+                match self.compact_history().await {
+                    Ok(summary) => {
+                        self.history.push(Message::user("[KOMPAKTIFIZIERUNG]"));
+                        self.history.push(Message::assistant(&summary));
+                        save_history(&self.home, &self.history);
+                        self.bus.publish(Event::Compacted);
+                    }
+                    Err(e) => {
+                        self.bus.publish(Event::SystemMessage {
+                            text: format!("Kompaktifizierung fehlgeschlagen: {}", e),
+                        });
+                        self.bus.publish(Event::Compacted); // Prompt wiederherstellen
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
+    /// Gibt den relevanten Teil der History zurueck (ab dem letzten Kompaktifizierungs-Marker).
+    fn history_for_agent(&self) -> Vec<Message> {
+        // Letzten Kompaktifizierungs-Marker suchen
+        let last_compact = self.history.iter().rposition(|msg| {
+            matches!(msg, Message::User { content } if content.iter().any(|part| {
+                matches!(part, rig::message::UserContent::Text(rig::message::Text { text, .. }) if text == "[KOMPAKTIFIZIERUNG]")
+            }))
+        });
+
+        match last_compact {
+            Some(idx) => self.history[idx..].to_vec(),
+            None => self.history.clone(),
+        }
+    }
+
+    /// Non-streaming, tool-freier LLM-Call fuer interne Aufgaben (z.B. Kompaktifizierung).
+    async fn simple_chat(&self, preamble: &str, prompt: &str) -> Result<String, anyhow::Error> {
+        match self.config.provider.as_str() {
+            "anthropic" => {
+                let client = anthropic::Client::from_env();
+                let agent = client
+                    .agent(&self.config.model)
+                    .preamble(preamble)
+                    .temperature(0.3)
+                    .build();
+                Ok(agent.chat(prompt, vec![]).await?)
+            }
+            "mistral" => {
+                let client = mistral::Client::from_env();
+                let agent = client
+                    .agent(&self.config.model)
+                    .preamble(preamble)
+                    .temperature(0.3)
+                    .build();
+                Ok(agent.chat(prompt, vec![]).await?)
+            }
+            "ollama" => {
+                let client: ollama::Client = ollama::Client::new(rig::client::Nothing)
+                    .map_err(|e| anyhow::anyhow!("Ollama-Client: {}", e))?;
+                let agent = client
+                    .agent(&self.config.model)
+                    .preamble(preamble)
+                    .temperature(0.3)
+                    .build();
+                Ok(agent.chat(prompt, vec![]).await?)
+            }
+            other => anyhow::bail!("Unbekannter Provider: '{}'", other),
+        }
+    }
+
+    /// Baut die History als lesbaren Text zusammen.
+    fn history_as_text(&self) -> String {
+        let mut text = String::from("Hier ist die bisherige Konversation:\n\n");
+        for msg in &self.history {
+            match msg {
+                Message::User { content } => {
+                    text.push_str("User: ");
+                    for part in content.iter() {
+                        if let rig::message::UserContent::Text(t) = part {
+                            text.push_str(&t.text);
+                        }
+                    }
+                    text.push('\n');
+                }
+                Message::Assistant { content, .. } => {
+                    text.push_str("Assistant: ");
+                    for part in content.iter() {
+                        if let rig::message::AssistantContent::Text(t) = part {
+                            text.push_str(&t.text);
+                        }
+                    }
+                    text.push('\n');
+                }
+            }
+        }
+        text.push_str("\nFasse diese Konversation zusammen.");
+        text
+    }
+
+    /// Fuehrt einen Kompaktifizierungs-Call durch.
+    async fn compact_history(&self) -> Result<String, anyhow::Error> {
+        let preamble = fs::read_to_string(self.home.join(".system/compact-preamble.md"))
+            .unwrap_or_else(|_| "Fasse die Konversation zusammen.".to_string());
+        let prompt = self.history_as_text();
+        self.simple_chat(&preamble, &prompt).await
+    }
+}
+
+/// Prueft ob die Input-Token-Nutzung den Schwellwert erreicht hat.
+fn should_compact(input_tokens: u64, context_window: u64, threshold_percent: u64) -> bool {
+    if context_window == 0 {
+        return false;
+    }
+    input_tokens * 100 / context_window >= threshold_percent
+}
+
+/// Schaetzt die Context-Window-Groesse anhand des Modellnamens.
+/// Config-Override hat Vorrang (z.B. fuer Ollama-Modelle).
+fn context_window_size(model: &str, config_override: Option<u64>) -> u64 {
+    if let Some(v) = config_override {
+        return v;
+    }
+    if model.starts_with("claude") {
+        200_000
+    } else if model.starts_with("mistral-large") {
+        128_000
+    } else if model.starts_with("mistral-small") {
+        32_000
+    } else {
+        128_000 // Konservativer Default
+    }
 }
 
 // --- Hilfsfunktionen (aus dem alten main.rs) ---
