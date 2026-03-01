@@ -8,8 +8,8 @@ use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use crate::bus::Bus;
-use crate::core::BootInfo;
-use crate::events::Event;
+use crate::agent::BootInfo;
+use crate::bus::events::Event;
 
 /// REPL - Read-Eval-Print-Loop als Event-Teilnehmer.
 pub struct Repl {

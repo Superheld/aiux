@@ -63,7 +63,26 @@ graph LR
 ```
 
 Gebaut und lauffaehig: REPL, Core mit Streaming, MemoryTool, Preamble-Assembly,
-Conversation-Persistenz, Kompaktifizierung. Kein Daemon, keine Nerves, ein Agent.
+Conversation-Persistenz, Kompaktifizierung. Kein Daemon, keine Nerves, zwei Agents.
+
+---
+
+## Agents
+
+Zwei eigenstaendige rig-Agents, NICHT verschachtelt (kein Sub-Agent per `.tool()`).
+
+| Agent | Datei | Preamble | Tools | History | Ausloeser |
+|-------|-------|----------|-------|---------|-----------|
+| **Cortex** (Grosshirn) | `agent/cortex.rs` | soul + user + context | soul, user, memory | ja, mit Streaming | User-Input via Bus |
+| **Hippocampus** | `agent/hippocampus.rs` | compact-preamble.md | soul, user, memory | nein (leere `vec![]`) | Rust-Code (Schwellwert, /clear, /quit) |
+
+Der Cortex ist der einzige Agent der auf dem Bus lauscht. Der Hippocampus wird
+vom Cortex per Rust-Aufruf gestartet - das LLM entscheidet NICHT selbst
+wann der Hippocampus laeuft, das steuert der Code.
+
+Aufgaben des Hippocampus:
+- **Kompaktifizierung** (`compact_history`): Token-Schwellwert erreicht → Wissen destillieren, History kuerzen
+- **Memory-Flush** (`memory_flush`): Bei /clear und /quit → Wissen sichern ohne History zu kuerzen
 
 ---
 
@@ -191,17 +210,25 @@ Preamble pro Rolle: `soul + user + role + role-memory + role-context`.
 ```
 aiux/
 ├── core/src/
-│   ├── main.rs          # Verdrahtung
-│   ├── core.rs          # Gehirn (Provider-Factory, Agent)
-│   ├── config.rs        # Config laden
-│   ├── preamble.rs      # System-Prompt Assembly
-│   ├── history.rs       # Conversation-Persistenz, Kompaktifizierung
-│   ├── home.rs          # home/-Verzeichnis finden
-│   ├── events.rs        # Event-Typen
-│   ├── bus.rs           # Event-Bus (broadcast)
-│   ├── repl.rs          # Kommandozeile
-│   └── memory.rs        # MemoryTool
-├── nerve/               # Platzhalter
+│   ├── main.rs              # Verdrahtung
+│   ├── config.rs            # Config laden
+│   ├── history.rs           # Conversation-Persistenz, Kompaktifizierungs-Schwellwert
+│   ├── home.rs              # home/-Verzeichnis finden
+│   ├── preamble.rs          # System-Prompt Assembly (fuer alle Agents)
+│   ├── repl.rs              # Kommandozeile
+│   ├── agent/
+│   │   ├── mod.rs           # Modul-Einstiegspunkt (re-exports)
+│   │   ├── cortex.rs        # Cortex-Agent (Grosshirn)
+│   │   └── hippocampus.rs   # Hippocampus-Agent (Gedaechtnis)
+│   ├── bus/
+│   │   ├── mod.rs           # Event-Bus (broadcast)
+│   │   └── events.rs        # Event-Typen
+│   └── tools/
+│       ├── mod.rs           # Tool-Registry
+│       ├── soul.rs          # SoulTool
+│       ├── user.rs          # UserTool
+│       └── memory.rs        # MemoryTool
+├── nerve/                   # Platzhalter
 ├── home/
 │   ├── .system/
 │   │   ├── config.toml

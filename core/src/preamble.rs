@@ -4,12 +4,14 @@
 // 1. soul.md - Wer bin ich?
 // 2. user.md - Mit wem rede ich?
 // 3. context/*.md - Was weiss ich noch?
+//
+// Systemfunktion - gehoert keinem Agent, wird von allen genutzt.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Laedt eine Datei oder gibt einen leeren String zurueck.
-fn read_file(path: &Path) -> String {
+pub fn read_file(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_default()
 }
 
@@ -83,7 +85,7 @@ mod tests {
     }
 
     // ==========================================================
-    // load_preamble() / load_context_files()
+    // load_preamble()
     // ==========================================================
 
     #[test]
@@ -138,6 +140,10 @@ mod tests {
         assert!(preamble.is_empty());
     }
 
+    // ==========================================================
+    // load_context_files()
+    // ==========================================================
+
     #[test]
     fn context_files_nur_md() {
         let (_tmp, home) = test_home();
@@ -174,5 +180,18 @@ mod tests {
         let (_tmp, home) = test_home();
         let files = load_context_files(&home.join("memory/gibts_nicht"));
         assert!(files.is_empty());
+    }
+
+    // ==========================================================
+    // count_context_files()
+    // ==========================================================
+
+    #[test]
+    fn count_context_files_zaehlt_richtig() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join("memory/context/a.md"), "A").unwrap();
+        fs::write(home.join("memory/context/b.md"), "B").unwrap();
+
+        assert_eq!(count_context_files(&home), 2);
     }
 }

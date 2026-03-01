@@ -1,7 +1,7 @@
-// History: Conversation-Persistenz und Kompaktifizierungs-Logik.
+// History: Conversation-Persistenz und Kompaktifizierungs-Schwellwert.
 //
 // Tages-History als JSON in memory/conversations/.
-// Kompaktifizierung prueft ob das Token-Budget erreicht ist.
+// Systemfunktionen - gehoeren keinem Agent, werden vom Cortex genutzt.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,7 +16,6 @@ pub fn conversation_path(home: &Path) -> PathBuf {
 
 /// Laedt die gespeicherte Konversations-History fuer heute.
 pub fn load_history(home: &Path) -> Vec<Message> {
-    // Verzeichnis erstellen falls nicht vorhanden
     let conv_dir = home.join("memory/conversations");
     fs::create_dir_all(&conv_dir).ok();
 
