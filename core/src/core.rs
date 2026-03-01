@@ -18,7 +18,7 @@ use rig::providers::{anthropic, mistral, ollama};
 use rig::streaming::{StreamedAssistantContent, StreamingChat};
 
 use crate::bus::Bus;
-use crate::config::AgentConfig;
+use crate::config::Config;
 use crate::events::Event;
 use crate::memory::MemoryTool;
 
@@ -65,7 +65,7 @@ pub struct Core {
     bus: Arc<Bus>,
     home: PathBuf,
     history: Vec<Message>,
-    config: AgentConfig,
+    config: Config,
     preamble: String,
     preamble_dirty: Arc<AtomicBool>,
 }
@@ -80,7 +80,7 @@ pub struct BootInfo {
 
 impl Core {
     /// Neuen Core erstellen. Laedt Preamble und History.
-    pub fn new(bus: Arc<Bus>, home: PathBuf, config: AgentConfig) -> Self {
+    pub fn new(bus: Arc<Bus>, home: PathBuf, config: Config) -> Self {
         dotenvy::dotenv().ok();
         let preamble = load_preamble(&home);
         let history = load_history(&home);
@@ -421,11 +421,15 @@ pub fn find_home() -> PathBuf {
 /// Gibt den Dateinamen fuer die heutige Konversation zurueck.
 fn conversation_path(home: &PathBuf) -> PathBuf {
     let today = chrono::Local::now().format("%Y-%m-%d");
-    home.join(format!("memory/conversation-{}.json", today))
+    home.join(format!("memory/conversations/conversation-{}.json", today))
 }
 
 /// Laedt die gespeicherte Konversations-History fuer heute.
 fn load_history(home: &PathBuf) -> Vec<Message> {
+    // Verzeichnis erstellen falls nicht vorhanden
+    let conv_dir = home.join("memory/conversations");
+    fs::create_dir_all(&conv_dir).ok();
+
     let path = conversation_path(home);
     match fs::read_to_string(&path) {
         Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
@@ -453,12 +457,13 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let home = tmp.path().to_path_buf();
         fs::create_dir_all(home.join("memory/context")).unwrap();
-        fs::create_dir_all(home.join("memory")).unwrap();
+        fs::create_dir_all(home.join("memory/conversations")).unwrap();
+        fs::create_dir_all(home.join(".system")).unwrap();
         (tmp, home)
     }
 
-    fn test_config() -> AgentConfig {
-        AgentConfig {
+    fn test_config() -> Config {
+        Config {
             provider: "anthropic".to_string(),
             model: "claude-sonnet-4-5-20250929".to_string(),
             temperature: 0.7,
@@ -801,5 +806,31 @@ mod tests {
         assert!(!info.has_user);
         assert_eq!(info.context_count, 0);
         assert_eq!(info.history_count, 0);
+    }
+
+    // ==========================================================
+    // conversation_path() - neuer Pfad in conversations/
+    // ==========================================================
+
+    #[test]
+    fn conversation_path_in_conversations_subdir() {
+        let (_tmp, home) = test_home();
+        let path = conversation_path(&home);
+        // Pfad muss memory/conversations/conversation-YYYY-MM-DD.json sein
+        assert!(path.to_string_lossy().contains("memory/conversations/conversation-"));
+        assert!(path.to_string_lossy().ends_with(".json"));
+    }
+
+    #[test]
+    fn conversations_dir_wird_automatisch_erstellt() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().to_path_buf();
+        // Nur memory/ erstellen, NICHT conversations/
+        fs::create_dir_all(home.join("memory")).unwrap();
+        fs::create_dir_all(home.join(".system")).unwrap();
+
+        // load_history erstellt conversations/ automatisch
+        let _loaded = load_history(&home);
+        assert!(home.join("memory/conversations").is_dir());
     }
 }

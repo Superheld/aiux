@@ -24,10 +24,9 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // Config laden
     let config = Config::load(&home)?;
-    let agent_config = config.main_agent()?.clone();
 
     // Core: das Gehirn
-    let core = Core::new(bus.clone(), home, agent_config);
+    let core = Core::new(bus.clone(), home, config);
     let boot_info = core.boot_info();
 
     if !boot_info.has_soul {
