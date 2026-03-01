@@ -1,7 +1,7 @@
 # AIUX - Architektur
 
-> Wie AIUX gebaut ist und gebaut werden soll.
-> Aktueller Stand und Zielbild - klar getrennt.
+> Technische Beschreibung des Systems.
+> Was AIUX ist, wie es gebaut ist, welche Entscheidungen dahinter stehen.
 
 ---
 
@@ -14,10 +14,87 @@ Alles was der Core tut, erzeugt Events. Der MQTT-Bus ist das Nervensystem.
 Wahrnehmung (Nerve)  ->  Event auf Bus  ->  Core denkt  ->  Handlung (Tool)
 ```
 
-**Aktueller Stand:** Noch nicht event-driven. Der Core ist eine synchrone REPL
-(stdin -> LLM -> stdout). Die Event-Architektur kommt mit Phase 6 (MQTT-Bus).
-Der Code sollte aber schon jetzt so strukturiert werden, dass Input als
-Abstraktion behandelt wird - nicht als hartcodiertes stdin.
+Intern: `tokio::sync::broadcast` Channel. Extern (Nerves, Gateway): MQTT (Mosquitto).
+Siehe [EVENT-BUS.md](EVENT-BUS.md) fuer Details zu Events, Teilnehmern und Regeln.
+
+---
+
+## Agent-Factory & Provider-Abstraktion
+
+### Problem
+
+rig-core unterstuetzt viele Provider (Anthropic, OpenAI/Mistral, Ollama, etc.),
+aber jeder erzeugt einen anderen Rust-Typ. `Agent<anthropic::Model>` und
+`Agent<openai::Model>` sind fuer den Compiler verschiedene Typen.
+
+### rig's Loesung
+
+rig bietet eine **Application-Layer Abstraktion**: ab `client.agent("model")`
+ist der Code bei allen Providern identisch. Preamble, Tools, Chat, Streaming -
+alles gleich. Nur die Client-Erstellung (eine Zeile) ist provider-spezifisch:
+
+```rust
+// Anthropic
+let client = anthropic::Client::from_env();
+
+// Mistral (OpenAI-kompatible API)
+let client = openai::Client::builder()
+    .base_url("https://api.mistral.ai/v1")
+    .api_key(&key).build();
+
+// Ollama (lokal)
+let client = ollama::Client::new(Nothing);
+
+// Ab hier identisch fuer alle Provider:
+let agent = client.agent(&model)
+    .preamble(&preamble)
+    .tool(memory_tool)
+    .build();
+```
+
+### Agent-Factory
+
+Eine Factory-Funktion liest die Config und baut den richtigen Agent:
+
+1. Config bestimmt Provider + Modell
+2. Factory matched auf den Provider-String und erstellt den passenden Client
+3. Ab `client.agent(...)` ist der Code identisch (rig's Application Layer)
+4. Der fertige Agent wird an seinen Bus-Task gebunden -
+   der generische Typ bleibt intern
+
+```
+Config (TOML)                Factory                     Bus
+┌──────────────┐      ┌──────────────────┐       ┌──────────────┐
+│ provider     │─────>│ match provider { │──────>│ Events rein  │
+│ model        │      │   "anthropic"    │       │ Events raus  │
+│ temperature  │      │   "mistral"      │       │ Typ ist weg  │
+│ api_key_env  │      │   "ollama"       │       └──────────────┘
+└──────────────┘      └──────────────────┘
+```
+
+Der Bus ist die Abstraktionsschicht. Kein eigener Adapter-Layer noetig -
+der Agent-Typ lebt nur innerhalb seines Tasks, nach aussen gibt es nur Events.
+
+### Config-Struktur
+
+```toml
+# home/config.toml
+
+[agents.main]
+provider = "anthropic"
+model = "claude-sonnet-4-5-20250929"
+temperature = 0.7
+
+[agents.vision]
+provider = "mistral"
+model = "mistral-large-latest"
+api_key_env = "MISTRAL_API_KEY"
+```
+
+Jeder Agent hat einen eigenen Config-Eintrag mit Provider und Modell.
+Sub-Agents (z.B. Vision-Nerve) bekommen eigene Eintraege.
+Der Agent wird zur Laufzeit aus den Zutaten (Client + Preamble + Tools) gebaut -
+Aenderungen an der Config erfordern kein Rekompilieren.
 
 ---
 
@@ -33,14 +110,15 @@ Patterns die wir bewusst einsetzen (nicht was Frameworks mitbringen):
 | **Composite** | Preamble Assembly | System-Prompt aus Teilen zusammengebaut (soul + user + context). Neue Teile koennen dazukommen. |
 | **Command** | Tool-Use | Jeder Tool-Call ist ein serialisiertes Command-Objekt (action + parameter). Neue Tools = neue Commands. |
 
-### Geplant
+### Nerves & Bus
 
-| Pattern | Wann | Was es tut |
-|---------|------|------------|
-| **Observer** | Phase 6 | Nerves beobachten passiv, melden nur Relevantes. |
-| **Publish/Subscribe** | Phase 6 | Nerves publishen, Core subscribt. Entkoppelt ueber MQTT. |
-| **Mediator** | Phase 6 | Der Bus vermittelt. Komponenten kennen nur den Bus, nicht einander. |
-| **Strategy** | Phase 6 | Jeder Nerve hat gleiche Schnittstelle, eigene Beobachtungs-Strategie. |
+| Pattern | Wo | Was es tut |
+|---------|----|------------|
+| **Observer** | Nerves | Nerves beobachten passiv, melden nur Relevantes. |
+| **Publish/Subscribe** | MQTT Bus | Nerves publishen, Core subscribt. Entkoppelt ueber MQTT. |
+| **Mediator** | Bus | Der Bus vermittelt. Komponenten kennen nur den Bus, nicht einander. |
+| **Strategy** | Nerves | Jeder Nerve hat gleiche Schnittstelle, eigene Beobachtungs-Strategie. |
+| **Factory** | Agent-Factory | Baut Agents anhand Config. Provider-Typ bleibt intern. |
 
 ### Biologische Metaphern als Architektur
 
@@ -68,8 +146,8 @@ Die Metaphern sind nicht Deko - sie SIND die Architektur-Entscheidungen:
 ┌──────────────────────▼──────────────────────────┐
 │  aiux-core (Rust Daemon)                         │
 │                                                  │
-│  LLM-Client (rig-core)                           │
-│  - Anthropic Claude (API)                        │
+│  Agent-Factory + LLM-Client (rig-core)            │
+│  - Provider per Config (Anthropic, Mistral, ...) │
 │  - Streaming, Tool-Use, Function Calling         │
 │  - soul.md als System-Prompt (Preamble)          │
 │  - user.md + context als Kontext                 │
@@ -125,68 +203,55 @@ Die Metaphern sind nicht Deko - sie SIND die Architektur-Entscheidungen:
 
 ---
 
-## Aktueller Stand (nach Phase 4.3)
+## Komponenten
 
-Was tatsaechlich gebaut und lauffaehig ist:
+### Core (`core.rs`)
 
-```
-┌──────────────────────────────────────────────────┐
-│  aiux-core (REPL, kein Daemon)                    │
-│                                                   │
-│  LLM-Client (rig-core 0.31)                      │
-│  - Anthropic Claude (API, Streaming)              │
-│  - Tool-Use (MemoryTool)                          │
-│                                                   │
-│  Preamble (Boot-Sequence)                         │
-│  - soul.md -> user.md -> context/*.md             │
-│                                                   │
-│  Memory                                           │
-│  - Kurzzeit: context/*.md (Agent liest/schreibt)  │
-│  - Konversation: conversation-YYYY-MM-DD.json     │
-│                                                   │
-│  REPL                                             │
-│  - stdin -> LLM -> stdout (direkt, kein Bus)      │
-│  - Befehle: quit, exit, clear                     │
-└──────────────────────────────────────────────────┘
-```
+Das Gehirn. Kapselt den rig-Agent, Preamble und History.
+Subscribt auf `UserInput` Events, publiziert `ResponseToken`/`ResponseComplete`.
+Baut den Agent bei Bedarf neu (wenn sich Config oder Preamble aendern).
 
-**Nicht gebaut:** Bus, Nerves, Scheduler, Daemon, Gateway, Shell-Tool,
-RAG/Vector-Suche, Skills, Journal.
+### REPL (`repl.rs`)
+
+Kommandozeile. Liest von stdin, publiziert `UserInput` Events.
+Empfaengt Response-Events und gibt sie auf stdout aus.
+Austauschbar durch Gateway (HTTP, Telegram, etc.).
+
+### Event-Bus (`bus.rs`)
+
+Interner `tokio::sync::broadcast` Channel. Verteilt Events an alle Subscriber.
+Siehe [EVENT-BUS.md](EVENT-BUS.md).
+
+### Agent-Factory
+
+Baut Agents anhand der Config. Matched auf Provider-String,
+erstellt den passenden Client, bindet den Agent an den Bus.
+
+### main.rs
+
+Nur Verdrahtung: Bus erstellen, Core und REPL anschliessen, laufen lassen.
 
 ---
 
 ## Tech-Stack
 
-### Eingebaut (in Cargo.toml)
-
-| Crate | Version | Was |
-|-------|---------|-----|
-| **rig-core** | 0.31 | LLM Framework (Anthropic, Streaming, Tool-Use) |
-| **tokio** | 1 | Async Runtime |
-| **serde** + **serde_json** | 1 | Serialisierung (History, Tool-Parameter) |
-| **schemars** | 1 | JSON Schema fuer Tool-Definitionen |
-| **chrono** | 0.4 | Datum fuer taegliche History-Rotation |
-| **thiserror** | 2 | Error-Typen (MemoryTool) |
-| **anyhow** | 1 | Error-Handling (main) |
-| **futures** | 0.3 | Stream-Verarbeitung (Streaming-Ausgabe) |
-| **dotenvy** | 0.15 | .env laden (API-Key) |
-
-### Geplant (noch nicht in Cargo.toml)
-
-| Crate | Phase | Was |
-|-------|-------|-----|
-| **rig-sqlite** | 4.4 | Vector Store (SQLite + sqlite-vec) fuer RAG |
-| **rumqttc** | 6 | MQTT Client fuer Event-Bus |
-| **tokio-cron-scheduler** | 5 | Rhythmen (Puls, Atem, Tag, Woche) |
-| **tract-onnx** | Fernziel | Lokale ONNX Inference auf Raspi |
-| **llama-cpp-2** | Fernziel | Lokale LLMs (Offline-Fallback) |
-
-### Infrastruktur
-
-| Komponente | Status | Was |
-|-----------|--------|-----|
-| **Mosquitto** | geplant (Phase 6) | MQTT Broker (Event-Bus) |
-| **SQLite** | geplant (Phase 4.4) | Langzeit-Memory + Vector Store |
+| Crate / Komponente | Was |
+|--------------------|-----|
+| **rig-core** | LLM Framework (Multi-Provider, Streaming, Tool-Use) |
+| **tokio** | Async Runtime |
+| **serde** + **serde_json** | Serialisierung (History, Tool-Parameter) |
+| **schemars** | JSON Schema fuer Tool-Definitionen |
+| **chrono** | Datum fuer taegliche History-Rotation |
+| **thiserror** | Error-Typen (MemoryTool) |
+| **anyhow** | Error-Handling (main) |
+| **futures** | Stream-Verarbeitung (Streaming-Ausgabe) |
+| **dotenvy** | .env laden (API-Keys) |
+| **rig-sqlite** | Vector Store (SQLite + sqlite-vec) fuer RAG |
+| **rumqttc** | MQTT Client fuer externen Event-Bus |
+| **tokio-cron-scheduler** | Rhythmen (Puls, Atem, Tag, Woche) |
+| **tract-onnx** | Lokale ONNX Inference auf Raspi |
+| **Mosquitto** | MQTT Broker (externes Nervensystem) |
+| **SQLite** | Langzeit-Memory + Vector Store |
 
 ---
 
@@ -202,22 +267,22 @@ Beim Start des Core wird der System-Prompt (Preamble) zusammengebaut:
 
 Danach wird die Tages-History geladen (`conversation-YYYY-MM-DD.json`).
 
-**Geplant (spaeter):**
-- journal/heute + journal/gestern in die Boot-Sequence (Phase 9)
-- skills/*.md als zusaetzlicher Kontext (Phase 8)
-- environment.md mit System-Infos (Phase 5)
+Spaetere Erweiterungen der Boot-Sequence:
+- journal/heute + journal/gestern (Reflexion)
+- skills/*.md als zusaetzlicher Kontext
+- environment.md mit System-Infos
 
 ---
 
 ## Memory-Modell
 
-Drei Speicherformen, zwei davon eingebaut:
+Drei Speicherformen:
 
-| Typ | Format | Lebensdauer | Status |
-|-----|--------|-------------|--------|
-| **Kurzzeit** | context/*.md | Permanent, vom Agent verwaltet | eingebaut |
-| **Konversation** | conversation-YYYY-MM-DD.json | Pro Tag, REPL-History | eingebaut |
-| **Langzeit** | SQLite + RAG (rig-sqlite) | Permanent, durchsuchbar | geplant (Phase 4.4) |
+| Typ | Format | Lebensdauer |
+|-----|--------|-------------|
+| **Kurzzeit** | context/*.md | Permanent, vom Agent verwaltet |
+| **Konversation** | conversation-YYYY-MM-DD.json | Pro Tag, REPL-History |
+| **Langzeit** | SQLite + RAG (rig-sqlite) | Permanent, durchsuchbar |
 
 **Kurzzeit:** Der Agent schreibt/liest hier ueber das MemoryTool (write/read/list).
 Wird beim naechsten Start als Teil der Preamble geladen.
@@ -225,8 +290,8 @@ Wird beim naechsten Start als Teil der Preamble geladen.
 **Konversation:** Automatisch gespeichert nach jedem Turn. Pro Tag eine neue Datei.
 Beim Start wird nur der heutige Tag geladen. `clear` loescht den heutigen Tag.
 
-**Langzeit:** Noch nicht gebaut. Soll semantische Suche ueber alle Erinnerungen
-ermoeglichen (Embeddings + Vektor-Suche statt alles in den Preamble zu laden).
+**Langzeit:** Semantische Suche ueber alle Erinnerungen
+(Embeddings + Vektor-Suche statt alles in den Preamble zu laden).
 
 ---
 
@@ -239,8 +304,12 @@ aiux/
 ├── core/                  # aiux-core
 │   ├── Cargo.toml
 │   └── src/
-│       ├── main.rs        # REPL, Boot-Sequence, History
-│       └── memory.rs      # MemoryTool (Tool-Use)
+│       ├── main.rs        # Verdrahtung (Bus + Core + REPL)
+│       ├── events.rs      # Event-Typen (UserInput, Response, Shutdown)
+│       ├── bus.rs          # Interner Event-Bus (broadcast)
+│       ├── core.rs         # Gehirn (rig-Agent, History, Preamble)
+│       ├── repl.rs         # Kommandozeile (stdin/stdout ueber Bus)
+│       └── memory.rs       # MemoryTool (Tool-Use)
 ├── nerve/                 # aiux-nerve (Platzhalter, nicht implementiert)
 │   ├── Cargo.toml
 │   └── src/main.rs
