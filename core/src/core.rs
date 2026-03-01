@@ -122,6 +122,10 @@ impl Core {
 
     /// Eingabe verarbeiten: Agent fragen, Tokens streamen, History updaten.
     async fn handle_input(&mut self, input: &str) -> Result<(), anyhow::Error> {
+        // Preamble bei jedem Input neu laden, weil context/ sich
+        // zur Laufzeit aendern kann (z.B. durch MemoryTool).
+        self.preamble = load_preamble(&self.home);
+
         let memory_tool = MemoryTool::new(&self.home);
 
         // Stream-Verarbeitung passiert im match-Block,
