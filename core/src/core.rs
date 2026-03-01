@@ -6,6 +6,7 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -58,6 +59,7 @@ pub struct Core {
     history: Vec<Message>,
     config: AgentConfig,
     preamble: String,
+    preamble_dirty: Arc<AtomicBool>,
 }
 
 /// Boot-Info fuer die Anzeige beim Start.
@@ -81,6 +83,7 @@ impl Core {
             history,
             config,
             preamble,
+            preamble_dirty: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -122,11 +125,12 @@ impl Core {
 
     /// Eingabe verarbeiten: Agent fragen, Tokens streamen, History updaten.
     async fn handle_input(&mut self, input: &str) -> Result<(), anyhow::Error> {
-        // Preamble bei jedem Input neu laden, weil context/ sich
-        // zur Laufzeit aendern kann (z.B. durch MemoryTool).
-        self.preamble = load_preamble(&self.home);
+        // Preamble nur neu laden wenn sich context/ geaendert hat (dirty flag vom MemoryTool)
+        if self.preamble_dirty.swap(false, Ordering::Relaxed) {
+            self.preamble = load_preamble(&self.home);
+        }
 
-        let memory_tool = MemoryTool::new(&self.home);
+        let memory_tool = MemoryTool::new(&self.home, Arc::clone(&self.preamble_dirty));
 
         // Stream-Verarbeitung passiert im match-Block,
         // weil jeder Provider einen eigenen Rust-Typ erzeugt.

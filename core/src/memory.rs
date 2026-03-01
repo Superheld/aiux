@@ -6,6 +6,8 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
@@ -15,14 +17,18 @@ use serde::{Deserialize, Serialize};
 /// Das Memory-Tool. Haelt den Pfad zum context/ Verzeichnis.
 pub struct MemoryTool {
     context_dir: PathBuf,
+    preamble_dirty: Arc<AtomicBool>,
 }
 
 impl MemoryTool {
-    pub fn new(home: &PathBuf) -> Self {
+    pub fn new(home: &PathBuf, preamble_dirty: Arc<AtomicBool>) -> Self {
         let context_dir = home.join("memory/context");
         // Sicherstellen dass das Verzeichnis existiert
         fs::create_dir_all(&context_dir).ok();
-        Self { context_dir }
+        Self {
+            context_dir,
+            preamble_dirty,
+        }
     }
 }
 
@@ -101,6 +107,8 @@ impl Tool for MemoryTool {
                 let path = self.context_dir.join(format!("{}.md", args.key));
                 fs::write(&path, &args.content)
                     .map_err(|e| MemoryError(format!("Schreibfehler: {}", e)))?;
+                // Preamble muss beim naechsten Input neu geladen werden
+                self.preamble_dirty.store(true, Ordering::Relaxed);
                 Ok(MemoryResult {
                     success: true,
                     message: format!("Notiz '{}' gespeichert.", args.key),
