@@ -38,9 +38,12 @@ pub enum Event {
     /// Tool wurde aufgerufen
     ToolCall { name: String },
 
-    /// Signal von einem externen Nerve (ueber MQTT)
+    /// Signal von einem externen Nerve (ueber MQTT).
+    /// Pflichtfelder: source, event, ts. data ist optional.
     NerveSignal {
         source: String,
-        payload: serde_json::Value,
+        event: String,
+        data: serde_json::Value,
+        ts: String,
     },
 }

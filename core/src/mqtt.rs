@@ -84,26 +84,58 @@ impl MqttBridge {
     }
 
     /// Verarbeitet eingehende MQTT-Pakete → NerveSignal auf den Bus.
+    /// Pflichtfelder im JSON: ts, source, event. Fehlende Felder → Warnung + verwerfen.
     fn handle_incoming(&self, packet: Packet) {
         if let Packet::Publish(publish) = packet {
             let topic = publish.topic.clone();
 
             // Nur aiux/nerve/* Topics verarbeiten
-            let source = match topic.strip_prefix("aiux/nerve/") {
-                Some(rest) => format!("nerve/{}", rest),
-                None => return,
-            };
+            if topic.strip_prefix("aiux/nerve/").is_none() {
+                return;
+            }
 
-            // Payload als JSON parsen, bei Fehler als String wrappen
-            let payload = match serde_json::from_slice::<serde_json::Value>(&publish.payload) {
+            // JSON parsen
+            let json: serde_json::Value = match serde_json::from_slice(&publish.payload) {
                 Ok(val) => val,
                 Err(_) => {
-                    let text = String::from_utf8_lossy(&publish.payload);
-                    serde_json::json!({ "raw": text.to_string() })
+                    self.bus.publish(Event::SystemMessage {
+                        text: format!("MQTT: Kein gueltiges JSON auf {}", topic),
+                    });
+                    return;
                 }
             };
 
-            self.bus.publish(Event::NerveSignal { source, payload });
+            // Pflichtfelder pruefen
+            let source = match json.get("source").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => {
+                    self.bus.publish(Event::SystemMessage {
+                        text: format!("MQTT: Pflichtfeld 'source' fehlt auf {}", topic),
+                    });
+                    return;
+                }
+            };
+            let event = match json.get("event").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => {
+                    self.bus.publish(Event::SystemMessage {
+                        text: format!("MQTT: Pflichtfeld 'event' fehlt auf {}", topic),
+                    });
+                    return;
+                }
+            };
+            let ts = match json.get("ts").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => {
+                    self.bus.publish(Event::SystemMessage {
+                        text: format!("MQTT: Pflichtfeld 'ts' fehlt auf {}", topic),
+                    });
+                    return;
+                }
+            };
+            let data = json.get("data").cloned().unwrap_or(serde_json::Value::Null);
+
+            self.bus.publish(Event::NerveSignal { source, event, data, ts });
         }
     }
 
@@ -155,58 +187,102 @@ impl MqttBridge {
 mod tests {
     use super::*;
 
-    /// JSON-Payload wird korrekt als NerveSignal geparsed.
+    /// Helper: MQTT Publish-Paket bauen
+    fn mqtt_publish(topic: &str, payload: &[u8]) -> Packet {
+        let mut publish = rumqttc::Publish::new(topic, QoS::AtLeastOnce, payload.to_vec());
+        publish.topic = topic.to_string();
+        Packet::Publish(publish)
+    }
+
+    /// Gueltiges JSON mit Pflichtfeldern wird als NerveSignal geparsed.
     #[test]
-    fn parse_nerve_signal_json() {
+    fn parse_nerve_signal_gueltig() {
         let bus = Arc::new(Bus::new(16));
         let bridge = MqttBridge::new(bus.clone(), "localhost", 1883);
         let mut rx = bus.subscribe();
 
-        // Simuliere ein MQTT Publish-Paket
-        let mut publish = rumqttc::Publish::new(
-            "aiux/nerve/file",
-            QoS::AtLeastOnce,
-            br#"{"event":"changed","path":"/tmp/test.txt"}"#.to_vec(),
-        );
-        publish.topic = "aiux/nerve/file".to_string();
-
-        bridge.handle_incoming(Packet::Publish(publish));
+        bridge.handle_incoming(mqtt_publish(
+            "aiux/nerve/file/changed",
+            br#"{"ts":"2026-03-02T14:00:00Z","source":"nerve/file","event":"changed","data":{"path":"/tmp/test.txt"}}"#,
+        ));
 
         let event = rx.try_recv().unwrap();
         match event {
-            Event::NerveSignal { source, payload } => {
+            Event::NerveSignal { source, event, data, ts } => {
                 assert_eq!(source, "nerve/file");
-                assert_eq!(payload["event"], "changed");
-                assert_eq!(payload["path"], "/tmp/test.txt");
+                assert_eq!(event, "changed");
+                assert_eq!(ts, "2026-03-02T14:00:00Z");
+                assert_eq!(data["path"], "/tmp/test.txt");
             }
             other => panic!("Erwartetes NerveSignal, bekam: {:?}", other),
         }
     }
 
-    /// Nicht-JSON Payload wird als { "raw": "..." } gewrappt.
+    /// data-Feld ist optional — fehlend ergibt Value::Null.
     #[test]
-    fn parse_nerve_signal_raw_text() {
+    fn parse_nerve_signal_ohne_data() {
         let bus = Arc::new(Bus::new(16));
         let bridge = MqttBridge::new(bus.clone(), "localhost", 1883);
         let mut rx = bus.subscribe();
 
-        let mut publish = rumqttc::Publish::new(
-            "aiux/nerve/test",
-            QoS::AtLeastOnce,
-            b"hello world".to_vec(),
-        );
-        publish.topic = "aiux/nerve/test".to_string();
-
-        bridge.handle_incoming(Packet::Publish(publish));
+        bridge.handle_incoming(mqtt_publish(
+            "aiux/nerve/test/ping",
+            br#"{"ts":"2026-03-02T14:00:00Z","source":"nerve/test","event":"ping"}"#,
+        ));
 
         let event = rx.try_recv().unwrap();
         match event {
-            Event::NerveSignal { source, payload } => {
-                assert_eq!(source, "nerve/test");
-                assert_eq!(payload["raw"], "hello world");
+            Event::NerveSignal { data, .. } => {
+                assert!(data.is_null());
             }
             other => panic!("Erwartetes NerveSignal, bekam: {:?}", other),
         }
+    }
+
+    /// Fehlendes Pflichtfeld 'event' → Warnung, kein NerveSignal.
+    #[test]
+    fn pflichtfeld_event_fehlt() {
+        let bus = Arc::new(Bus::new(16));
+        let bridge = MqttBridge::new(bus.clone(), "localhost", 1883);
+        let mut rx = bus.subscribe();
+
+        bridge.handle_incoming(mqtt_publish(
+            "aiux/nerve/test/x",
+            br#"{"ts":"2026-03-02T14:00:00Z","source":"nerve/test"}"#,
+        ));
+
+        // Sollte SystemMessage sein (Warnung), kein NerveSignal
+        let event = rx.try_recv().unwrap();
+        assert!(matches!(event, Event::SystemMessage { .. }));
+    }
+
+    /// Fehlendes Pflichtfeld 'ts' → Warnung, kein NerveSignal.
+    #[test]
+    fn pflichtfeld_ts_fehlt() {
+        let bus = Arc::new(Bus::new(16));
+        let bridge = MqttBridge::new(bus.clone(), "localhost", 1883);
+        let mut rx = bus.subscribe();
+
+        bridge.handle_incoming(mqtt_publish(
+            "aiux/nerve/test/x",
+            br#"{"source":"nerve/test","event":"ping"}"#,
+        ));
+
+        let event = rx.try_recv().unwrap();
+        assert!(matches!(event, Event::SystemMessage { .. }));
+    }
+
+    /// Kein JSON → Warnung.
+    #[test]
+    fn kein_json_payload() {
+        let bus = Arc::new(Bus::new(16));
+        let bridge = MqttBridge::new(bus.clone(), "localhost", 1883);
+        let mut rx = bus.subscribe();
+
+        bridge.handle_incoming(mqtt_publish("aiux/nerve/test/x", b"hello world"));
+
+        let event = rx.try_recv().unwrap();
+        assert!(matches!(event, Event::SystemMessage { .. }));
     }
 
     /// Fremde Topics (nicht aiux/nerve/) werden ignoriert.
@@ -216,14 +292,7 @@ mod tests {
         let bridge = MqttBridge::new(bus.clone(), "localhost", 1883);
         let mut rx = bus.subscribe();
 
-        let mut publish = rumqttc::Publish::new(
-            "other/topic",
-            QoS::AtLeastOnce,
-            b"{}".to_vec(),
-        );
-        publish.topic = "other/topic".to_string();
-
-        bridge.handle_incoming(Packet::Publish(publish));
+        bridge.handle_incoming(mqtt_publish("other/topic", b"{}"));
 
         assert!(rx.try_recv().is_err(), "Kein Event erwartet");
     }
@@ -231,7 +300,6 @@ mod tests {
     /// Nur ResponseComplete, SystemMessage und ToolCall gehen nach MQTT.
     #[test]
     fn event_filter_outgoing() {
-        // Events die NICHT nach MQTT gehen sollen
         let internal_events = vec![
             Event::UserInput { text: "test".into() },
             Event::ResponseToken { text: "tok".into() },
@@ -251,7 +319,6 @@ mod tests {
             assert!(!should_forward, "Event {:?} sollte intern bleiben", event);
         }
 
-        // Events die nach MQTT gehen sollen
         let external_events: Vec<Event> = vec![
             Event::ResponseComplete { full_text: "hi".into() },
             Event::SystemMessage { text: "info".into() },
@@ -266,31 +333,6 @@ mod tests {
                 | Event::ToolCall { .. }
             );
             assert!(should_forward, "Event {:?} sollte nach MQTT gehen", event);
-        }
-    }
-
-    /// Verschachtelte Nerve-Topics funktionieren (aiux/nerve/system/cpu).
-    #[test]
-    fn nested_nerve_topic() {
-        let bus = Arc::new(Bus::new(16));
-        let bridge = MqttBridge::new(bus.clone(), "localhost", 1883);
-        let mut rx = bus.subscribe();
-
-        let mut publish = rumqttc::Publish::new(
-            "aiux/nerve/system/cpu",
-            QoS::AtLeastOnce,
-            br#"{"load":0.5}"#.to_vec(),
-        );
-        publish.topic = "aiux/nerve/system/cpu".to_string();
-
-        bridge.handle_incoming(Packet::Publish(publish));
-
-        let event = rx.try_recv().unwrap();
-        match event {
-            Event::NerveSignal { source, .. } => {
-                assert_eq!(source, "nerve/system/cpu");
-            }
-            other => panic!("Erwartetes NerveSignal, bekam: {:?}", other),
         }
     }
 }

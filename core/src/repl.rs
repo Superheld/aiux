@@ -118,8 +118,8 @@ impl Repl {
                     print!("Du: ");
                     io::stdout().flush().ok();
                 }
-                Ok(Event::NerveSignal { source, .. }) => {
-                    println!("\n[nerve: {}]", source);
+                Ok(Event::NerveSignal { source, event, .. }) => {
+                    println!("\n[nerve: {} → {}]", source, event);
                     io::stdout().flush().ok();
                 }
                 Ok(Event::Shutdown) => break,

@@ -4,6 +4,7 @@
 // Bus erstellen, Module anschliessen, laufen lassen.
 
 mod agent;
+mod brainstem;
 mod bus;
 mod config;
 mod history;
@@ -14,6 +15,7 @@ mod tools;
 
 use std::sync::Arc;
 
+use crate::brainstem::Brainstem;
 use crate::bus::Bus;
 use crate::config::Config;
 use crate::agent::Core;
@@ -32,7 +34,11 @@ async fn main() -> Result<(), anyhow::Error> {
     let mqtt_host = config.mqtt_host.clone();
     let mqtt_port = config.mqtt_port;
 
-    // Core: das Gehirn (konsumiert config)
+    // Brainstem: Reflexe und Nerve-Verarbeitung
+    let brainstem = Brainstem::new(bus.clone(), &home);
+    tokio::spawn(async move { brainstem.run().await });
+
+    // Core: das Gehirn (konsumiert config + home)
     let core = Core::new(bus.clone(), home, config);
 
     if let Some(host) = mqtt_host {
