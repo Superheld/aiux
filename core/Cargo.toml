@@ -17,6 +17,7 @@ serde_json = "1"
 schemars = "1"
 thiserror = "2"
 toml = "0.8"
+rumqttc = "0.24"
 
 [dev-dependencies]
 tempfile = "3"

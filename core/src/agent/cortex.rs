@@ -372,6 +372,8 @@ mod tests {
             api_key_env: None,
             context_window: None,
             compact_threshold: None,
+            mqtt_host: None,
+            mqtt_port: None,
         }
     }
 

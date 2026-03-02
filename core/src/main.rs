@@ -8,6 +8,7 @@ mod bus;
 mod config;
 mod history;
 mod home;
+mod mqtt;
 mod repl;
 mod tools;
 
@@ -16,6 +17,7 @@ use std::sync::Arc;
 use crate::bus::Bus;
 use crate::config::Config;
 use crate::agent::Core;
+use crate::mqtt::MqttBridge;
 use crate::repl::Repl;
 
 #[tokio::main]
@@ -26,8 +28,18 @@ async fn main() -> Result<(), anyhow::Error> {
     // Config laden
     let config = Config::load(&home)?;
 
-    // Core: das Gehirn
+    // MQTT-Bridge: Verbindung zur Aussenwelt (optional)
+    let mqtt_host = config.mqtt_host.clone();
+    let mqtt_port = config.mqtt_port;
+
+    // Core: das Gehirn (konsumiert config)
     let core = Core::new(bus.clone(), home, config);
+
+    if let Some(host) = mqtt_host {
+        let port = mqtt_port.unwrap_or(1883);
+        let bridge = MqttBridge::new(bus.clone(), &host, port);
+        tokio::spawn(async move { bridge.run().await });
+    }
     let boot_info = core.boot_info();
 
     if !boot_info.has_soul {

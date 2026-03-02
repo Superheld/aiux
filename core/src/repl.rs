@@ -118,6 +118,10 @@ impl Repl {
                     print!("Du: ");
                     io::stdout().flush().ok();
                 }
+                Ok(Event::NerveSignal { source, .. }) => {
+                    println!("\n[nerve: {}]", source);
+                    io::stdout().flush().ok();
+                }
                 Ok(Event::Shutdown) => break,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     eprintln!("REPL: {} Events verpasst", n);
