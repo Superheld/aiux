@@ -1,8 +1,8 @@
 // Brainstem: Reflexe und autonome Verarbeitung.
 //
 // Lauscht auf dem internen Bus nach NerveSignals, prueft sie gegen
-// die Registry (welche Nerves sind registriert, welche Topics erlaubt)
-// und verarbeitet sie spaeter per interpret.* (D.2b: rhai, LLM, etc.).
+// die Registry und fuehrt interpret.rhai Scripts in einer Sandbox aus.
+// Das Script entscheidet per Rueckgabewert ob/wohin weitergeleitet wird.
 //
 // Beim Start scannt der Brainstem home/nerves/*/ und laedt Manifeste.
 // Ohne Nerves ist die Registry leer und er tut nichts.
@@ -202,13 +202,18 @@ fn load_toml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
 pub struct Brainstem {
     bus: Arc<Bus>,
     registry: NerveRegistry,
+    engine: rhai::Engine,
 }
 
 impl Brainstem {
-    /// Neuer Brainstem mit Boot-Scan.
+    /// Neuer Brainstem mit Boot-Scan und rhai-Engine.
     pub fn new(bus: Arc<Bus>, home: &Path) -> Self {
         let registry = boot_scan(home, &bus);
-        Self { bus, registry }
+        let mut engine = rhai::Engine::new();
+        engine.set_max_operations(10_000);
+        engine.set_max_call_levels(32);
+        engine.set_max_string_size(64_000);
+        Self { bus, registry, engine }
     }
 
     /// Event-Loop: lauscht auf NerveSignals und verarbeitet sie.
@@ -230,22 +235,99 @@ impl Brainstem {
         }
     }
 
-    /// NerveSignal verarbeiten: Registry-Lookup + Logging.
-    /// Spaeter (D.2b): interpret.* ausfuehren.
-    fn handle_nerve_signal(&self, source: &str, event: &str, _data: &serde_json::Value, _ts: &str) {
-        match self.registry.find_by_source(source) {
-            Some(entry) => {
-                self.bus.publish(Event::SystemMessage {
-                    text: format!("Brainstem: {} → {} (Nerve: {})",
-                        source, event, entry.manifest.name),
-                });
-                // TODO D.2b: interpret.* ausfuehren, Ergebnis weiterleiten
-            }
+    /// NerveSignal verarbeiten: Registry-Lookup → interpret.rhai ausfuehren → weiterleiten.
+    fn handle_nerve_signal(&self, source: &str, event: &str, data: &serde_json::Value, ts: &str) {
+        let entry = match self.registry.find_by_source(source) {
+            Some(e) => e,
             None => {
                 self.bus.publish(Event::SystemMessage {
                     text: format!("Brainstem: Unbekannter Nerve '{}'", source),
                 });
+                return;
             }
+        };
+
+        // interpret.rhai suchen
+        let script_path = entry.path.join("interpret.rhai");
+        if !script_path.exists() {
+            // Kein Script → nur loggen (Fallback)
+            self.bus.publish(Event::SystemMessage {
+                text: format!("Brainstem: {} → {} (kein interpret.rhai)", source, event),
+            });
+            return;
+        }
+
+        // Script laden
+        let script = match std::fs::read_to_string(&script_path) {
+            Ok(s) => s,
+            Err(e) => {
+                self.bus.publish(Event::SystemMessage {
+                    text: format!("Brainstem: interpret.rhai nicht lesbar ({}): {}", entry.manifest.name, e),
+                });
+                return;
+            }
+        };
+
+        // Scope mit Konstanten fuellen
+        let mut scope = rhai::Scope::new();
+        scope.push_constant("source", source.to_string());
+        scope.push_constant("event", event.to_string());
+        scope.push_constant("data", data.to_string());
+        scope.push_constant("ts", ts.to_string());
+
+        // Script ausfuehren
+        let result = match self.engine.eval_with_scope::<rhai::Dynamic>(&mut scope, &script) {
+            Ok(r) => r,
+            Err(e) => {
+                self.bus.publish(Event::SystemMessage {
+                    text: format!("Brainstem: Script-Fehler ({}): {}", entry.manifest.name, e),
+                });
+                return;
+            }
+        };
+
+        // Ergebnis verarbeiten
+        self.process_script_result(&entry.manifest.name, result);
+    }
+
+    /// Verarbeitet das Ergebnis eines interpret.rhai Scripts.
+    /// Erwartet ein rhai-Map mit forward, target, text.
+    fn process_script_result(&self, nerve_name: &str, result: rhai::Dynamic) {
+        let map = match result.try_cast::<rhai::Map>() {
+            Some(m) => m,
+            None => {
+                self.bus.publish(Event::SystemMessage {
+                    text: format!("Brainstem: Script-Ergebnis ist kein Map ({})", nerve_name),
+                });
+                return;
+            }
+        };
+
+        // forward: bool — weiterleiten?
+        let forward = map.get("forward")
+            .and_then(|v| v.clone().try_cast::<bool>())
+            .unwrap_or(false);
+
+        if !forward {
+            return;
+        }
+
+        let target = map.get("target")
+            .and_then(|v| v.clone().try_cast::<String>())
+            .unwrap_or_default();
+
+        let text = map.get("text")
+            .and_then(|v| v.clone().try_cast::<String>())
+            .unwrap_or_default();
+
+        match target.as_str() {
+            "cortex" => {
+                self.bus.publish(Event::SystemMessage {
+                    text: format!("Brainstem [{}]: {}", nerve_name, text),
+                });
+            }
+            // Spaeter: "mqtt" → MQTT publish
+            _ => {} // "ignore" oder unbekannt → nichts tun
         }
     }
 
@@ -276,6 +358,12 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("manifest.toml"), manifest).unwrap();
         fs::write(dir.join("channels.toml"), channels).unwrap();
+    }
+
+    fn write_nerve_with_script(home: &Path, name: &str, manifest: &str, channels: &str, script: &str) {
+        write_nerve(home, name, manifest, channels);
+        let dir = home.join("nerves").join(name);
+        fs::write(dir.join("interpret.rhai"), script).unwrap();
     }
 
     const VALID_MANIFEST: &str = r#"
@@ -466,14 +554,31 @@ binary = "./b"
     // -- Brainstem handle_nerve_signal --
 
     #[test]
-    fn brainstem_bekannter_nerve() {
+    fn brainstem_unbekannter_nerve() {
+        let (_tmp, home) = test_home();
+        let bus = Arc::new(Bus::new(16));
+        let brainstem = Brainstem::new(bus.clone(), &home);
+        let mut rx = bus.subscribe();
+
+        brainstem.handle_nerve_signal(
+            "nerve/ghost", "boo", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+        );
+
+        let event = rx.try_recv().unwrap();
+        match event {
+            Event::SystemMessage { text } => assert!(text.contains("Unbekannter Nerve")),
+            other => panic!("Erwartetes SystemMessage, bekam: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn brainstem_ohne_interpret_script() {
         let (_tmp, home) = test_home();
         write_nerve(&home, "test-nerve", VALID_MANIFEST, VALID_CHANNELS);
+        // Kein interpret.rhai!
 
         let bus = Arc::new(Bus::new(16));
         let brainstem = Brainstem::new(bus.clone(), &home);
-
-        // Consume boot-scan SystemMessages
         let mut rx = bus.subscribe();
 
         brainstem.handle_nerve_signal(
@@ -483,29 +588,145 @@ binary = "./b"
         let event = rx.try_recv().unwrap();
         match event {
             Event::SystemMessage { text } => {
-                assert!(text.contains("test-nerve"));
-                assert!(text.contains("ping"));
+                assert!(text.contains("kein interpret.rhai"));
+            }
+            other => panic!("Erwartetes SystemMessage, bekam: {:?}", other),
+        }
+    }
+
+    // -- rhai Script-Ausfuehrung --
+
+    #[test]
+    fn rhai_forward_true_cortex() {
+        let (_tmp, home) = test_home();
+        write_nerve_with_script(&home, "test-nerve", VALID_MANIFEST, VALID_CHANNELS, r#"
+            #{ forward: true, target: "cortex", text: `Hallo von ${source}` }
+        "#);
+
+        let bus = Arc::new(Bus::new(16));
+        let brainstem = Brainstem::new(bus.clone(), &home);
+        let mut rx = bus.subscribe();
+
+        brainstem.handle_nerve_signal(
+            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+        );
+
+        let event = rx.try_recv().unwrap();
+        match event {
+            Event::SystemMessage { text } => {
+                assert!(text.contains("Hallo von nerve/test-nerve"));
             }
             other => panic!("Erwartetes SystemMessage, bekam: {:?}", other),
         }
     }
 
     #[test]
-    fn brainstem_unbekannter_nerve() {
+    fn rhai_forward_false() {
         let (_tmp, home) = test_home();
+        write_nerve_with_script(&home, "test-nerve", VALID_MANIFEST, VALID_CHANNELS, r#"
+            #{ forward: false, target: "cortex", text: "nix" }
+        "#);
+
         let bus = Arc::new(Bus::new(16));
         let brainstem = Brainstem::new(bus.clone(), &home);
-
         let mut rx = bus.subscribe();
 
         brainstem.handle_nerve_signal(
-            "nerve/ghost", "boo", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+        );
+
+        // Kein Event erwartet (forward: false)
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn rhai_script_variablen() {
+        let (_tmp, home) = test_home();
+        write_nerve_with_script(&home, "test-nerve", VALID_MANIFEST, VALID_CHANNELS, r#"
+            #{ forward: true, target: "cortex", text: `${source}|${event}|${ts}` }
+        "#);
+
+        let bus = Arc::new(Bus::new(16));
+        let brainstem = Brainstem::new(bus.clone(), &home);
+        let mut rx = bus.subscribe();
+
+        brainstem.handle_nerve_signal(
+            "nerve/test-nerve", "ping", &serde_json::json!({"x":1}), "2026-03-02T14:00:00Z"
         );
 
         let event = rx.try_recv().unwrap();
         match event {
             Event::SystemMessage { text } => {
-                assert!(text.contains("Unbekannter Nerve"));
+                assert!(text.contains("nerve/test-nerve|ping|2026-03-02T14:00:00Z"));
+            }
+            other => panic!("Erwartetes SystemMessage, bekam: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn rhai_script_fehler() {
+        let (_tmp, home) = test_home();
+        write_nerve_with_script(&home, "test-nerve", VALID_MANIFEST, VALID_CHANNELS,
+            "das ist kein rhai {{{");
+
+        let bus = Arc::new(Bus::new(16));
+        let brainstem = Brainstem::new(bus.clone(), &home);
+        let mut rx = bus.subscribe();
+
+        brainstem.handle_nerve_signal(
+            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+        );
+
+        let event = rx.try_recv().unwrap();
+        match event {
+            Event::SystemMessage { text } => {
+                assert!(text.contains("Script-Fehler"));
+            }
+            other => panic!("Erwartetes SystemMessage, bekam: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn rhai_kein_map_zurueck() {
+        let (_tmp, home) = test_home();
+        write_nerve_with_script(&home, "test-nerve", VALID_MANIFEST, VALID_CHANNELS,
+            "42");  // Gibt eine Zahl zurueck, kein Map
+
+        let bus = Arc::new(Bus::new(16));
+        let brainstem = Brainstem::new(bus.clone(), &home);
+        let mut rx = bus.subscribe();
+
+        brainstem.handle_nerve_signal(
+            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+        );
+
+        let event = rx.try_recv().unwrap();
+        match event {
+            Event::SystemMessage { text } => {
+                assert!(text.contains("kein Map"));
+            }
+            other => panic!("Erwartetes SystemMessage, bekam: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn rhai_endlosschleife_abbruch() {
+        let (_tmp, home) = test_home();
+        write_nerve_with_script(&home, "test-nerve", VALID_MANIFEST, VALID_CHANNELS,
+            "loop { }");  // Endlosschleife → set_max_operations bricht ab
+
+        let bus = Arc::new(Bus::new(16));
+        let brainstem = Brainstem::new(bus.clone(), &home);
+        let mut rx = bus.subscribe();
+
+        brainstem.handle_nerve_signal(
+            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+        );
+
+        let event = rx.try_recv().unwrap();
+        match event {
+            Event::SystemMessage { text } => {
+                assert!(text.contains("Script-Fehler"));
             }
             other => panic!("Erwartetes SystemMessage, bekam: {:?}", other),
         }
