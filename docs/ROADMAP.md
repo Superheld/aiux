@@ -81,20 +81,59 @@ destilliert Wissen automatisch in die passenden Dateien.
 
 ---
 
-## Phase D: Erster Nerve
+## Phase D: Nervensystem
 
-> Den ersten Fuehler zur Umwelt anschliessen.
+> MQTT, Brainstem, erste Nerves. Das System bekommt Sinne.
 
-`nerve-file` als einfachster Nerve: Beobachtet Dateiaenderungen
-in home/ und meldet sie auf den Bus. Damit greift auch der
-Preamble-Reload automatisch.
+### D.1: MQTT-Grundlagen
 
-- [ ] nerve-file: inotify/notify auf home/memory/ und home/config.toml
-- [ ] Event-Typ: FileChanged { path, change_type }
-- [ ] Core reagiert auf Config-Aenderung: Agent neu bauen
-- [ ] Core reagiert auf Preamble-Aenderung: Preamble neu laden
-- [ ] MQTT-Bridge: interner Bus <-> Mosquitto (fuer externe Nerves)
-- [ ] Unit-Tests fuer Phase D
+Mosquitto als externer Bus. Bridge im Core.
+
+- [x] Mosquitto lokal einrichten (Entwicklung)
+- [x] MQTT-Bridge im Core: rumqttc Client, subscribe auf `aiux/nerve/#`
+- [x] Bridge als optionaler Task in main.rs (nur wenn mqtt_host konfiguriert)
+- [x] Config erweitern: mqtt_host, mqtt_port (optional)
+- [x] NerveSignal Event-Typ im internen Bus
+- [x] Bus-to-MQTT: ResponseComplete, SystemMessage, ToolCall nach aiux/cortex/*
+- [x] Tests fuer Bridge (JSON-Parsing, Event-Mapping, Event-Filterung) - 5 Tests, 77 gesamt
+
+### D.2: Brainstem (Sandbox + Heartbeat)
+
+Laufzeitumgebung fuer Nerve-Verarbeitung. Heartbeat fuer Lebenszeichen
+und Rhythmen. Kann vom Cortex als Reminder genutzt werden.
+
+- [ ] MQTT Message-Schema definieren: Pflichtfelder, Validierung gegen channels.toml
+- [ ] Brainstem-Modul im Core: Registry, Nerve-Discovery, interpret-Ausfuehrung
+- [ ] Nerve-Verzeichnisse scannen: manifest.toml + channels.toml lesen
+- [ ] Registry: welche Nerves sind aktiv, welche Channels existieren
+- [ ] rhai-Engine einbetten (sandboxed)
+- [ ] Boot-Scan: nerves/*/ beim Start laden
+- [ ] Heartbeat: pruefen ob Nerves noch leben (Watchdog)
+- [ ] Heartbeat: Cortex regelmaessig triggern (Puls, Atem, Tagesrueckblick)
+- [ ] Heartbeat: Cortex kann Reminder setzen ("erinnere mich in 1h")
+- [ ] Tests fuer Brainstem
+
+### D.3: nerve-file
+
+Erster Nerve. Beobachtet Dateiaenderungen in home/.
+Ist gleichzeitig das Discovery-System fuer neue Nerves.
+
+- [ ] nerve-file Binary (notify crate, inotify auf Linux)
+- [ ] MQTT: publish auf aiux/nerve/file/changed
+- [ ] Nerve-Verzeichnis: manifest.toml, channels.toml, interpret.*
+- [ ] Brainstem-Verarbeitung: Config-Reload, Preamble-Reload, Nerve-Discovery
+- [ ] Tests fuer nerve-file
+
+### D.4: nerve-system
+
+Zweiter Nerve. Ueberwacht CPU, RAM, Disk, Temperatur.
+Zeigt das Thalamus-Pattern: Nerve filtert selbst, meldet nur Anomalien.
+
+- [ ] nerve-system Binary (oder Telegraf mit MQTT-Output)
+- [ ] MQTT: publish auf aiux/nerve/system/*
+- [ ] Nerve-Verzeichnis: manifest.toml, channels.toml, interpret.*
+- [ ] Brainstem-Verarbeitung per rhai (Schwellwerte, Trends)
+- [ ] Tests fuer nerve-system
 
 ---
 
@@ -132,26 +171,11 @@ ersetzt die REPL fuer externe Kommunikation.
 
 > Das System spueren und die Umwelt wahrnehmen.
 
-Jeder Nerve hat eigene Vorverarbeitung (verteilter Thalamus).
-Alles kommt als Text beim Core an.
-
-- [ ] nerve-system: CPU, RAM, Disk, Temperatur
 - [ ] nerve-log: Syslog beobachten, Anomalien erkennen
 - [ ] nerve-net: Netzwerk-Status, Erreichbarkeit
-- [ ] Nerves mit lokalem Modell fuer Vorverarbeitung (Ollama)
+- [ ] Brainstem-LLM: kleines Modell fuer sprachliche Interpretation
+- [ ] Externe Modelle/APIs fuer Nerves (Ollama, ONNX)
 - [ ] Unit-Tests fuer Phase G
-
----
-
-## Phase H: Hirnstamm (Scheduler)
-
-> Rhythmen die ohne bewusstes Denken laufen.
-
-- [ ] Puls (5 Min): Bin ich okay? Kurzer Selbst-Check
-- [ ] Atem (1h): Was ist gerade los? Zusammenfassung
-- [ ] Tagesrueckblick: Was habe ich heute gelernt?
-- [ ] Events auf den Bus, Core entscheidet ob Aktion noetig
-- [ ] Unit-Tests fuer Phase H
 
 ---
 
@@ -177,12 +201,15 @@ Frueher offen, jetzt beantwortet:
 | Frage | Antwort |
 |-------|---------|
 | Memory am Bus oder im Core? | Hippocampus hoert auf dem Bus mit (Phase C). MemoryTool bleibt im Core. |
-| Wie werden Nerves angebunden? | Eigene Prozesse, MQTT nach aussen, eigene Vorverarbeitung. |
-| Scheduler: eigenes Modul? | Ja, Hirnstamm. Eigenes Modul, Events auf den Bus. |
-| Chat = Nerve? | Nein. Chat ist direkter Zugang zum Grosshirn. Gateway, kein Nerve. |
-| Filter/Thalamus zentral? | Nein. Verteilt, jeder Nerve filtert selbst. |
+| Wie werden Nerves angebunden? | Eigene Prozesse, MQTT nach aussen. Nerve liefert Was/Wie/Wohin. |
+| Brainstem = Scheduler? | Brainstem = Sandbox + Heartbeat. Nerve-Verarbeitung (rhai, LLM, APIs) UND Taktgeber (Watchdog, Rhythmen, Reminder). |
+| Nerve-Discovery? | file-watcher Nerve beobachtet nerves/. Bootstrap beim Boot durch Brainstem-Scan. |
+| Chat = Nerve? | Nein. Chat ist direkter Zugang zum Cortex. Gateway, kein Nerve. |
+| Cortex bekommt Nerve-Events? | Nicht automatisch. Cortex ist Superuser, kann auf MQTT mitlesen wenn er will. |
+| Nerve-Format? | Verzeichnis unter nerves/ mit manifest.toml, channels.toml, interpret.*, binary. |
+| Scriptsprache? | rhai (sandboxed, eingebettet, fertig). Keine eigene Scriptsprache. |
 | Config wo? | System-Config in home/.system/config.toml. Rollen-Config spaeter in roles/<name>/config.toml. |
 
 ---
 
-*Letzte Aktualisierung: 2026-03-02*
+*Letzte Aktualisierung: 2026-03-02 (Phase D neu geschnitten: Nervensystem)*

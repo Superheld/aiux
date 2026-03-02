@@ -14,37 +14,43 @@ block-beta
   columns 1
   block:gehirn["Gehirn (aiux-core)"]
     columns 3
-    A["Grosshirn\nCore/LLM"] B["Hippocampus\nMemory"] C["Hirnstamm\nScheduler"]
+    A["Cortex\nGrosshirn/LLM"] B["Hippocampus\nMemory"] C["Brainstem\nReflexe/Sandbox"]
   end
-  Bus["Bus (Nervensystem)\ntokio::broadcast / MQTT"]
+  block:bus["Nervensystem"]
+    columns 2
+    D["tokio::broadcast\n(intern)"] E["MQTT/Mosquitto\n(extern)"]
+  end
   block:nerves["Nerves (Fuehler)"]
     columns 4
-    D["system"] E["log"] F["file"] G["..."]
+    F["file"] G["system"] H["log"] I["..."]
   end
   OS["Betriebssystem / Hardware"]
 
-  gehirn --> Bus
-  Bus --> nerves
+  gehirn --> bus
+  bus --> nerves
   nerves --> OS
 ```
 
-**Grosshirn** = Core. Das LLM denkt, spricht, entscheidet.
-Alles muss als Sprache ankommen.
+**Cortex** (Grosshirn) = das LLM. Denkt, spricht, entscheidet.
+Einziger Ort fuer komplexe Entscheidungen. Alles kommt als Sprache an.
 
-**Hippocampus** = automatische Gedaechtnisbildung. Hoert auf dem Bus mit,
-speichert wichtige Dinge ohne bewusste Entscheidung. (geplant, Phase C)
+**Hippocampus** = automatische Gedaechtnisbildung. Wird vom Cortex per
+Rust-Code aufgerufen, destilliert Wissen in Memory-Dateien.
 
-**Hirnstamm** = Scheduler. Rhythmen ohne bewusstes Denken:
-Puls, Atem, Tagesrueckblick. (geplant, Phase H)
+**Brainstem** (Truncus cerebri) = Reflexe, autonome Verarbeitung und Heartbeat.
+Kein eigenes Denken - fuehrt aus was Nerves mitliefern. Sandbox fuer
+Scripte und Modelle. Haelt das System am Leben (Watchdog, Rhythmen, Reminder).
+Siehe [Brainstem](#brainstem).
 
-### Nerves, Tools, Chat
+### Cortex, Nerves, Tools, Chat
 
-- **Nerves** (Fuehler) = passive Sensoren. Jeder Nerve hat eigenen Filter
-  (verteilter Thalamus), uebersetzt in Text. (geplant, Phase D+G)
-- **Tools** (Haende) = aktive Handlungen. Das Grosshirn entscheidet bewusst
-  etwas zu tun (MemoryTool, spaeter ShellTool, MessageTool).
-- **Chat** ist kein Nerve. Direkter Zugang zum Grosshirn, kein Filter.
-  REPL, spaeter Telegram/Web als Gateways. (Gateway geplant, Phase F)
+- **Nerves** = passive Sensoren. Eigene Prozesse, kommunizieren ueber MQTT.
+  Jeder Nerve liefert seine eigene Verarbeitungslogik fuer den Brainstem mit.
+  Siehe [Nerve-System](#nerve-system).
+- **Tools** (Haende) = aktive Handlungen. Der Cortex entscheidet bewusst
+  etwas zu tun. Nerves koennen eigene Tools mitliefern (dynamisch via `ToolDyn`).
+- **Chat** ist kein Nerve. Direkter Zugang zum Cortex, kein Filter.
+  REPL intern, spaeter Telegram/Web als Gateways.
 
 ---
 
@@ -63,7 +69,8 @@ graph LR
 ```
 
 Gebaut und lauffaehig: REPL, Core mit Streaming, MemoryTool,
-Conversation-Persistenz, Kompaktifizierung. Kein Daemon, keine Nerves, zwei Agents.
+Conversation-Persistenz, Kompaktifizierung, MQTT-Bridge (optional).
+Kein Daemon, keine Nerves, zwei Agents.
 
 ---
 
@@ -98,6 +105,8 @@ Intern `tokio::sync::broadcast`, spaeter extern MQTT fuer Nerves.
 | `SystemMessage` | Core → REPL | System-Info (Usage, Fehler) |
 | `Compacting` / `Compacted` | Core → REPL | Kompaktifizierung laeuft/fertig |
 | `ClearHistory` | REPL → Core | History loeschen (/clear) |
+| `ToolCall` | Core → REPL | Tool aufgerufen |
+| `NerveSignal` | Bridge → Core | Externes Signal von einem Nerve (via MQTT) |
 | `Shutdown` | REPL → alle | Herunterfahren (/quit) |
 
 ```mermaid
@@ -222,12 +231,13 @@ aiux/
 │   ├── bus/
 │   │   ├── mod.rs           # Event-Bus (broadcast)
 │   │   └── events.rs        # Event-Typen
+│   ├── mqtt.rs              # MQTT-Bridge (intern ↔ extern)
 │   └── tools/
 │       ├── mod.rs           # Tool-Registry
 │       ├── soul.rs          # SoulTool
 │       ├── user.rs          # UserTool
 │       └── memory.rs        # MemoryTool
-├── nerve/                   # Platzhalter
+├── nerve/                   # Nerve-Binaries (Workspace-Crate)
 ├── home/
 │   ├── .system/
 │   │   ├── config.toml
@@ -237,6 +247,9 @@ aiux/
 │   │   ├── user.md
 │   │   ├── shortterm.md
 │   │   └── conversations/  # .gitignore
+│   ├── nerves/              # Nerve-Verzeichnisse (Plugins)
+│   │   ├── file-watcher/    #   manifest + channels + interpret + binary
+│   │   └── system-monitor/  #   manifest + channels + interpret + binary
 │   ├── skills/              # Platzhalter
 │   └── tools/               # Platzhalter
 └── docs/
@@ -248,9 +261,254 @@ aiux/
 /home/claude/
 ├── .system/config.toml
 ├── memory/{soul.md, user.md, shortterm.md, conversations/}
+├── nerves/{file-watcher/, system-monitor/, ...}
 ├── skills/
 └── tools/
 ```
+
+---
+
+## Nerve-System
+
+> Nerves geben dem Agent Sinne. Ohne Nerves ist er ein Kopf im Glas.
+
+### Was ist ein Nerve
+
+Ein Nerve ist ein **eigenstaendiger Prozess** der die Umwelt beobachtet und
+Aenderungen ueber MQTT meldet. Er ist passiv (nimmt wahr, handelt nicht)
+und spezialisiert (eine Domaene pro Nerve).
+
+Ein Nerve kann alles sein: eine Rust-Binary, ein Python-Script, ein
+Shell-Script, ein fertiges Tool wie Telegraf. Das Einzige was zaehlt:
+er spricht MQTT und haelt sich ans Nerve-Protokoll.
+
+### Nerve-Protokoll
+
+Jeder Nerve muss zwei Dinge tun:
+
+1. **Registrieren** - sich beim Start auf `aiux/nerve/register` anmelden
+2. **Publizieren** - Events auf seinen Channels veroeffentlichen
+
+```
+# Registrierung
+Topic:   aiux/nerve/register
+Payload: { "name": "file-watcher", "channels": ["aiux/nerve/file/changed"] }
+
+# Events
+Topic:   aiux/nerve/file/changed
+Payload: { "path": "memory/soul.md", "change_type": "modify", "ts": "..." }
+```
+
+### MQTT Topic-Struktur
+
+```
+aiux/
+├── nerve/
+│   ├── register                 ← Nerve meldet sich an
+│   └── <name>/
+│       └── <event>              ← Nerve-spezifische Events
+└── brainstem/
+    └── <name>/                  ← Verarbeitete Ergebnisse
+```
+
+Alles laeuft ueber MQTT. Der Cortex kann als Superuser auf beliebige
+Topics subscriben und mitlesen wenn er will (`aiux/#` = alles).
+
+### Nerve als Verzeichnis
+
+Ein Nerve ist ein Verzeichnis unter `nerves/` das alles mitbringt
+was es braucht - den Sensor UND seine Verarbeitungslogik fuer den Brainstem:
+
+```
+nerves/
+├── file-watcher/
+│   ├── manifest.toml        # MUSS: Wer bin ich, was starten
+│   ├── channels.toml        # MUSS: Welche MQTT-Topics
+│   ├── interpret.*           # Verarbeitung fuer den Brainstem
+│   └── nerve-file           # Der Sensor (Binary/Script)
+│
+└── system-monitor/
+    ├── manifest.toml
+    ├── channels.toml
+    ├── interpret.*           # Verarbeitung fuer den Brainstem
+    ├── config.toml           # Nerve-eigene Config (optional)
+    └── nerve-system
+```
+
+**manifest.toml** (Pflicht):
+```toml
+name = "file-watcher"
+version = "0.1.0"
+description = "Beobachtet Dateiänderungen in home/"
+binary = "nerve-file"
+```
+
+**channels.toml** (Pflicht):
+```toml
+[[publish]]
+topic = "aiux/nerve/file/changed"
+description = "Datei wurde erstellt, geaendert oder geloescht"
+
+[publish.schema]
+path = "string"
+change_type = "string"
+```
+
+**interpret.\*** - Die Verarbeitungslogik die der Nerve fuer den Brainstem
+mitliefert. Das Format bestimmt der Nerve:
+- `.rhai` - Script (rhai, sandboxed)
+- `.md` - Skill fuer das Brainstem-LLM
+- Eigenes Modell oder eigene API - Details spaeter
+
+Der Nerve bestimmt auch die **Weiterleitungsregeln**: wohin die
+verarbeiteten Ergebnisse gehen (welche MQTT-Topics, ob der Cortex
+informiert werden soll, etc.).
+
+---
+
+## Brainstem
+
+> Sandbox, nicht Denker. Fuehrt aus was Nerves mitliefern.
+
+### Was der Brainstem ist
+
+Der Brainstem ist eine **Sandbox** im Core-Prozess. Er hat keine eigene Logik -
+er fuehrt aus was Nerves in ihren `interpret.*` Dateien mitliefern.
+
+Wie der biologische Hirnstamm: die Grundreflexe sind verdrahtet,
+das Grosshirn muss nicht "atme jetzt" denken.
+
+### Sandbox-Prinzip
+
+```
+Nerve-Event kommt ueber MQTT
+         │
+         ▼
+    Brainstem sucht interpret.* des Nerve
+         │
+         ▼
+    Fuehrt die mitgelieferte Logik aus
+         │
+         ▼
+    Ergebnis gemaess Weiterleitungsregeln des Nerve
+    (MQTT-Topics, Cortex informieren, etc.)
+```
+
+Der Nerve bestimmt WAS beobachtet wird, WIE es verarbeitet wird,
+und WOHIN die Ergebnisse gehen.
+Der Brainstem stellt die Laufzeitumgebungen bereit:
+- **rhai-Engine** - Script-Interpreter (sandboxed)
+- **Eigenes LLM** - kleines Modell im Brainstem, auf das Nerves zugreifen koennen
+- **Externe Modelle/APIs** - ein Nerve kann auch eigene mitbringen (spaeter)
+
+### Brainstem-Aufgaben
+
+| Aufgabe | Wie |
+|---------|-----|
+| Nerve-Events verarbeiten | interpret.* aus dem Nerve-Verzeichnis ausfuehren |
+| Registry fuehren | Welche Nerves sind aktiv, was senden sie |
+| Nerve-Discovery | Neues Nerve-Verzeichnis → scannen, laden, starten |
+| Ergebnisse weiterleiten | Gemaess Weiterleitungsregeln des Nerve |
+| Heartbeat (Watchdog) | Pruefen ob Nerves noch leben |
+| Heartbeat (Rhythmen) | Cortex regelmaessig triggern (Puls, Atem, Tagesrueckblick) |
+| Heartbeat (Reminder) | Cortex kann Timer setzen ("erinnere mich in 1h") |
+
+### Was der Brainstem NICHT ist
+
+- **Keine eigene Logik** - er fuehrt nur aus was Nerves mitbringen
+- **Kein Entscheider** - er meldet, der Cortex entscheidet
+- **Kein eigener Prozess** - laeuft im Core-Prozess
+
+### Nerve-Discovery und Bootstrap
+
+Beim Start scannt der Brainstem einmalig `nerves/*/manifest.toml` und
+startet alle gefundenen Nerves. Danach uebernimmt der file-watcher Nerve:
+
+```
+Boot:
+  Brainstem scannt nerves/          ← einmalig, hardcoded
+  Startet file-watcher + andere
+
+Runtime:
+  Jemand legt nerves/garden/ ab
+  file-watcher bemerkt es           ← MQTT Event
+  Brainstem fuehrt Regel aus        ← interpret: nerve_discover
+  Brainstem scannt nerves/garden/   ← gleiche Logik wie beim Boot
+  Startet nerve-garden
+  Informiert Cortex                 ← "Neuer Nerve: garden"
+```
+
+Der file-watcher IST das Discovery-System. Kein separater Mechanismus noetig.
+
+---
+
+## Kommunikationsarchitektur
+
+### Zwei Bus-Systeme
+
+```
+┌────────────────────────────────────────────────────┐
+│                    Core-Prozess                     │
+│                                                     │
+│  ┌──────┐  tokio::broadcast  ┌─────────────────┐  │
+│  │ REPL │◄──────────────────►│     Cortex      │  │
+│  └──────┘    (in-process)    │  (LLM, Tools)   │  │
+│                               └────────┬────────┘  │
+│                                        │            │
+│                               ┌────────┴────────┐  │
+│                               │    Brainstem    │  │
+│                               │ (Sandbox/Reflexe│  │
+│                               │  Registry)      │  │
+│                               └────────┬────────┘  │
+│                                        │            │
+│                               ┌────────┴────────┐  │
+│                               │  MQTT Bridge    │  │
+│                               └────────┬────────┘  │
+└────────────────────────────────────────┼───────────┘
+                                         │ MQTT
+                                    ┌────┴────┐
+                                    │Mosquitto│
+                                    └────┬────┘
+                          ┌──────────────┼──────────────┐
+                          │              │              │
+                    nerve-file    nerve-system    nerve-...
+```
+
+**Interner Bus** (tokio::broadcast): REPL ↔ Cortex. Schnell, typsicher, in-process.
+Fuer alles was im Core-Prozess passiert.
+
+**Externer Bus** (MQTT/Mosquitto): Nerves ↔ Brainstem. Sprachunabhaengig,
+prozessuebergreifend. Fuer alles ausserhalb des Core-Prozesses.
+
+**Bridge**: Uebersetzt zwischen beiden Welten. Der Cortex weiss nicht
+dass MQTT existiert - er bekommt Events ueber den internen Bus wie immer.
+
+### Datenfluss
+
+```
+Nerve (eigener Prozess)
+  → MQTT publish auf aiux/nerve/<name>/<event>
+    → Bridge empfaengt
+      → Brainstem verarbeitet (interpret.*)
+        → Ergebnis gemaess Weiterleitungsregeln des Nerve
+
+Cortex (Superuser)
+  → Kann jederzeit auf aiux/# subscriben und mitlesen
+  → Entscheidet selbst ob und worauf er reagiert
+```
+
+---
+
+## Offene Architektur-Fragen
+
+Besprochen aber noch nicht entschieden:
+
+- **Weiterleitungsregeln** - Wie definiert ein Nerve wohin seine Ergebnisse gehen?
+- **Brainstem-LLM** - Welches kleine Modell, wie angebunden?
+- **Externe Modelle/APIs** - Wie bringt ein Nerve eigene Modelle mit?
+- **Dynamische Tools** - Nerves koennten dem Cortex Tools mitliefern
+  (rig-core `ToolDyn` + `ToolSet` unterstuetzt das). Format offen.
+- **Heartbeat-Details** - Intervalle, Reminder-API, Watchdog-Timeouts
 
 ---
 
@@ -271,13 +529,16 @@ aiux/
 | **dotenvy** | .env laden |
 | **toml** | Config parsen |
 
+| **rumqttc** | MQTT Client (Bridge, Nerves) |
+
 ### Geplant
 
 | Crate | Zweck | Phase |
 |-------|-------|-------|
+| **notify** | Filesystem-Watcher (nerve-file) | D |
+| **rhai** | Eingebettete Scriptsprache (Brainstem) | D |
 | **rig-sqlite** | Vector Store + RAG | Fernziel |
-| **rumqttc** | MQTT Client (externer Bus) | D |
-| **tokio-cron-scheduler** | Scheduler-Rhythmen | H |
+| **tokio-cron-scheduler** | Scheduler-Rhythmen | Fernziel |
 | **tract-onnx** | Lokale Inference | Fernziel |
 
 ---
@@ -286,11 +547,11 @@ aiux/
 
 | Metapher | Komponente | Pattern |
 |----------|-----------|---------|
-| Grosshirn | Core/LLM | - |
-| Hippocampus | Memory (Hintergrund) | Observer |
-| Hirnstamm | Scheduler | Scheduled Jobs |
-| Fuehler | Nerves | Observer + Strategy |
-| Nervensystem | Bus | Pub/Sub + Mediator |
+| Cortex (Grosshirn) | LLM | - |
+| Hippocampus | Memory-Destillierung | Observer |
+| Brainstem | Reflex-Sandbox | Sandbox + Strategy |
+| Nerves (Fuehler) | Sensoren | Plugin + Observer |
+| Nervensystem | Bus (intern + MQTT) | Pub/Sub + Bridge |
 | Haende | Tools | Command |
 | Seele | soul.md | Config as Identity |
 | Gespraech | Chat/Gateway | - |
@@ -300,6 +561,8 @@ Eingebaute Patterns:
 - **Repository** - MemoryTool abstrahiert Speicherzugriff
 - **Composite** - Preamble aus Teilen zusammengebaut (soul + user + shortterm)
 - **Command** - Tool-Calls als serialisierte Command-Objekte
+- **Plugin** - Nerves als austauschbare Verzeichnisse mit Manifest
+- **Bridge** - Uebersetzung zwischen internem Bus und MQTT
 
 ---
 
@@ -318,4 +581,4 @@ cargo build --release
 
 ---
 
-*Letzte Aktualisierung: 2026-03-02*
+*Letzte Aktualisierung: 2026-03-02 (Nerve-System, Brainstem, MQTT)*
