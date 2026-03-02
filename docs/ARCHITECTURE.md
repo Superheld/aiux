@@ -93,6 +93,28 @@ aiux/
     └── <name>/
 ```
 
+### MQTT Message-Schema
+
+Jede Nachricht auf `aiux/nerve/<name>/<event>` **muss** dieses Format haben:
+
+```json
+{
+  "ts": "2026-03-02T14:30:00Z",
+  "source": "nerve/file",
+  "event": "changed",
+  "data": { }
+}
+```
+
+| Feld | Typ | Pflicht | Beschreibung |
+|------|-----|---------|-------------|
+| `ts` | String (ISO 8601) | ja | Zeitstempel des Events |
+| `source` | String | ja | Absender, z.B. `"nerve/file"` |
+| `event` | String | ja | Was passiert ist, z.B. `"changed"` |
+| `data` | Object | nein | Nerve-spezifische Daten (frei) |
+
+Die Bridge validiert Pflichtfelder — fehlende Felder oder kein JSON → Warnung, Message verworfen.
+
 ---
 
 ## Agents
