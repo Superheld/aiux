@@ -13,7 +13,7 @@ mod mqtt;
 mod repl;
 mod tools;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::brainstem::Brainstem;
 use crate::bus::Bus;
@@ -34,12 +34,15 @@ async fn main() -> Result<(), anyhow::Error> {
     let mqtt_host = config.mqtt_host.clone();
     let mqtt_port = config.mqtt_port;
 
+    // SharedScheduler: geteilter Zustand fuer Timer/Cron
+    let scheduler = Arc::new(Mutex::new(Vec::new()));
+
     // Brainstem: Reflexe und Nerve-Verarbeitung
-    let brainstem = Brainstem::new(bus.clone(), &home);
+    let brainstem = Brainstem::new(bus.clone(), &home, scheduler.clone());
     tokio::spawn(async move { brainstem.run().await });
 
     // Core: das Gehirn (konsumiert config + home)
-    let core = Core::new(bus.clone(), home, config);
+    let core = Core::new(bus.clone(), home, config, scheduler);
 
     if let Some(host) = mqtt_host {
         let port = mqtt_port.unwrap_or(1883);

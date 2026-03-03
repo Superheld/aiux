@@ -183,17 +183,72 @@ Wissen destillieren, `[KOMPAKTIFIZIERUNG]`-Marker setzen.
 
 ## Nerve-System
 
-Ein Nerve = eigenstaendiger Prozess + Verzeichnis unter `nerves/`:
+Ein Nerve = eigenstaendiger Prozess der sich beim Start selbst registriert.
+
+### Self-Registration
+
+Jeder Nerve schickt beim Start eine Register-Message auf `aiux/nerve/register`:
+
+```json
+{
+    "ts": "2026-03-03T14:00:00Z",
+    "source": "nerve/system",
+    "event": "register",
+    "data": {
+        "name": "system-monitor",
+        "version": "0.1.0",
+        "description": "Ueberwacht CPU, RAM, Disk, Temperatur",
+        "channels": [
+            "aiux/nerve/system/stats",
+            "aiux/nerve/system/alert"
+        ],
+        "home": "nerves/system-monitor"
+    }
+}
+```
+
+| Feld | Pflicht | Beschreibung |
+|------|---------|-------------|
+| `name` | ja | Eindeutiger Name des Nerve |
+| `version` | ja | Versionsnummer |
+| `description` | ja | Was der Nerve tut (Text fuer den Cortex) |
+| `channels` | ja | MQTT-Topics die dieser Nerve publishen wird |
+| `home` | nein | Pfad zum Nerve-Verzeichnis (relativ zu aiux home, fuer interpret.rhai) |
+
+Der Brainstem empfaengt die Registrierung und traegt den Nerve in die Registry ein.
+Danach verarbeitet er Events dieses Nerve wie gewohnt (interpret.rhai, Weiterleitung).
+
+Kein Boot-Scan, kein file-watcher fuer Discovery — jeder Nerve meldet sich selbst.
+Der Heartbeat prueft ob registrierte Nerves noch leben.
+
+### Nerve-Verzeichnis (optional)
 
 ```
-nerves/file-watcher/
-├── manifest.toml       # Pflicht: Name, Binary, Beschreibung
-├── channels.toml       # Pflicht: MQTT-Topics + Schema
-├── interpret.*         # Verarbeitung fuer Brainstem (rhai/md/...)
-└── nerve-file          # Der Sensor (Binary/Script, beliebige Sprache)
+nerves/system-monitor/
+└── interpret.rhai      # Verarbeitungslogik fuer den Brainstem
 ```
 
-**Nerve-Protokoll:** Registrieren auf `aiux/nerve/register`, dann Events auf eigenen Channels publizieren. Schema-Validierung kommt mit dem Brainstem (D.2).
+Nur noetig wenn der Brainstem Events dieses Nerve verarbeiten soll.
+Ohne interpret.rhai werden Events nur geloggt (Fallback).
+
+### Lebenszyklus
+
+```mermaid
+sequenceDiagram
+    participant N as Nerve
+    participant M as MQTT
+    participant B as Brainstem
+
+    N->>M: aiux/nerve/register (name, channels, ...)
+    M->>B: NerveSignal (event=register)
+    B->>B: Registry-Eintrag anlegen
+    loop Betrieb
+        N->>M: aiux/nerve/<name>/<event>
+        M->>B: NerveSignal
+        B->>B: interpret.rhai ausfuehren
+    end
+    Note over B: Heartbeat prueft periodisch ob N noch lebt
+```
 
 ---
 
@@ -204,19 +259,17 @@ Sandbox im Core-Prozess. Keine eigene Logik — fuehrt aus was Nerves mitliefern
 ```mermaid
 flowchart LR
   MQTT["Nerve-Event\n(MQTT)"] --> BS["Brainstem"]
-  BS -->|"sucht"| I["interpret.*\ndes Nerve"]
-  I --> R["rhai / LLM / API"]
+  BS -->|"sucht"| I["interpret.rhai\ndes Nerve"]
+  I --> R["rhai-Sandbox"]
   R -->|"Weiterleitungsregeln\ndes Nerve"| Out["MQTT / Cortex"]
 ```
 
 | Aufgabe | Beschreibung |
 |---------|-------------|
-| Verarbeitung | interpret.* aus Nerve-Verzeichnis ausfuehren |
+| Registration | `aiux/nerve/register` empfangen, Registry-Eintrag anlegen |
+| Verarbeitung | interpret.rhai aus Nerve-Verzeichnis ausfuehren |
 | Registry | Welche Nerves aktiv, welche Channels |
-| Discovery | Neues Nerve-Verzeichnis → scannen, laden, starten |
 | Heartbeat | Watchdog, Rhythmen (Puls/Atem), Reminder |
-
-Discovery: Boot-Scan von `nerves/*/manifest.toml`, danach uebernimmt file-watcher.
 
 ---
 
@@ -234,7 +287,9 @@ aiux/
 │   ├── agent/{cortex,hippocampus}.rs
 │   ├── bus/{mod,events}.rs
 │   └── tools/{soul,user,memory}.rs
-├── nerve/                   # Nerve-Binaries (Workspace-Crate)
+├── nerve/                   # Nerve-Binaries
+│   ├── shared/              # Gemeinsamer Code (MQTT, Registration)
+│   └── system/              # nerve-system Binary
 ├── home/
 │   ├── .system/             # Config + System-Prompts
 │   ├── memory/              # soul.md, user.md, shortterm.md, conversations/
@@ -262,18 +317,20 @@ Zielsystem (Raspi): `/home/claude/` mit gleicher Struktur.
 | **futures** | Stream-Verarbeitung |
 | **dotenvy** | .env laden |
 | **toml** | Config parsen |
+| **rhai** | Brainstem-Sandbox (interpret.rhai) |
+| **cron** | Cron-Ausdruecke (Scheduler/Heartbeat) |
+| **notify** | Filesystem-Watcher (nerve-file) |
 
-Geplant: **notify** (Filesystem-Watcher), **rhai** (Brainstem-Sandbox),
-**rig-sqlite** (RAG), **tokio-cron-scheduler** (Rhythmen), **tract-onnx** (lokale Inference).
+Geplant:
+**rig-sqlite** (RAG), **tract-onnx** (lokale Inference).
 
 ---
 
 ## Offene Fragen
 
-- Weiterleitungsregeln: Wie definiert ein Nerve wohin Ergebnisse gehen?
 - Brainstem-LLM: Welches kleine Modell, wie angebunden?
 - Dynamische Tools: Nerves liefern dem Cortex Tools (rig-core `ToolDyn`)?
-- Heartbeat-Details: Intervalle, Reminder-API, Watchdog-Timeouts
+- Heartbeat-Details: Intervalle, Watchdog-Timeouts
 
 ---
 
