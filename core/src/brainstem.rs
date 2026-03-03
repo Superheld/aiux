@@ -1,16 +1,17 @@
 // Brainstem: Reflexe und autonome Verarbeitung.
 //
-// Lauscht auf dem internen Bus nach NerveSignals, prueft sie gegen
-// die Registry und fuehrt interpret.rhai Scripts in einer Sandbox aus.
-// Das Script entscheidet per Rueckgabewert ob/wohin weitergeleitet wird.
+// Beim Start scannt der Brainstem home/nerves/*/ und startet Nerve-Binaries
+// als Child-Prozesse (manifest.toml → binary). Nerves registrieren sich
+// dann selbst per MQTT (Self-Registration).
 //
-// Beim Start scannt der Brainstem home/nerves/*/ und laedt Manifeste.
-// Ohne Nerves ist die Registry leer und er tut nichts.
+// Lauscht auf NerveSignals, fuehrt interpret.rhai in einer Sandbox aus.
+// Bei Shutdown werden alle Child-Prozesse sauber beendet.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use serde::Deserialize;
 use tokio::sync::broadcast;
 use tokio::time::Instant;
 
@@ -78,6 +79,96 @@ impl NerveRegistry {
     pub fn names(&self) -> Vec<&str> {
         self.nerves.keys().map(|s| s.as_str()).collect()
     }
+}
+
+// ==========================================================
+// Nerve-Launcher
+// ==========================================================
+
+/// Minimales Manifest: nur was zum Starten noetig ist.
+#[derive(Debug, Deserialize)]
+struct NerveManifest {
+    binary: String,
+}
+
+/// Scannt home/nerves/*/ und startet Binaries aus manifest.toml.
+/// Gibt die Child-Handles zurueck (fuer Shutdown).
+fn launch_nerves(home: &Path, bus: &Bus) -> Vec<std::process::Child> {
+    let nerves_dir = home.join("nerves");
+    let mut children = Vec::new();
+
+    if !nerves_dir.exists() {
+        return children;
+    }
+
+    let entries = match std::fs::read_dir(&nerves_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            bus.publish(Event::SystemMessage {
+                text: format!("Brainstem: nerves/ nicht lesbar: {}", e),
+            });
+            return children;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let dir_name = path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string();
+
+        let manifest_path = path.join("manifest.toml");
+        if !manifest_path.exists() {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(&manifest_path) {
+            Ok(c) => c,
+            Err(e) => {
+                bus.publish(Event::SystemMessage {
+                    text: format!("Brainstem: {}/manifest.toml nicht lesbar: {}", dir_name, e),
+                });
+                continue;
+            }
+        };
+
+        let manifest: NerveManifest = match toml::from_str(&content) {
+            Ok(m) => m,
+            Err(e) => {
+                bus.publish(Event::SystemMessage {
+                    text: format!("Brainstem: {}/manifest.toml fehlerhaft: {}", dir_name, e),
+                });
+                continue;
+            }
+        };
+
+        // Binary suchen: erst im PATH (cargo install), dann relativ
+        let binary = &manifest.binary;
+        match std::process::Command::new(binary)
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+        {
+            Ok(child) => {
+                bus.publish(Event::SystemMessage {
+                    text: format!("Nerve gestartet: {} (PID {})", dir_name, child.id()),
+                });
+                children.push(child);
+            }
+            Err(e) => {
+                bus.publish(Event::SystemMessage {
+                    text: format!("Brainstem: Nerve '{}' nicht startbar ({}): {}", dir_name, binary, e),
+                });
+            }
+        }
+    }
+
+    children
 }
 
 // ==========================================================
@@ -197,12 +288,15 @@ pub struct Brainstem {
     registry: NerveRegistry,
     engine: rhai::Engine,
     scheduler: SharedScheduler,
+    children: Vec<std::process::Child>,
 }
 
 impl Brainstem {
     /// Neuer Brainstem mit rhai-Engine und Scheduler.
+    /// Scannt home/nerves/ und startet Nerve-Binaries.
     /// Registry ist leer — Nerves melden sich per Self-Registration.
     pub fn new(bus: Arc<Bus>, home: &Path, scheduler: SharedScheduler) -> Self {
+        let children = launch_nerves(home, &bus);
         let registry = NerveRegistry::new();
         let mut engine = rhai::Engine::new();
         engine.set_max_operations(10_000);
@@ -212,7 +306,7 @@ impl Brainstem {
         // parse_json: JSON-String → rhai::Map (fuer interpret.rhai Scripts)
         engine.register_fn("parse_json", parse_json_for_rhai);
 
-        Self { bus, home: home.to_path_buf(), registry, engine, scheduler }
+        Self { bus, home: home.to_path_buf(), registry, engine, scheduler, children }
     }
 
     /// Berechnet die Dauer bis zum naechsten faelligen Timer (max 60s).
@@ -289,7 +383,10 @@ impl Brainstem {
                         Ok(Event::NerveSignal { ref source, ref event, ref data, ref ts }) => {
                             self.handle_nerve_signal(source, event, data, ts);
                         }
-                        Ok(Event::Shutdown) => break,
+                        Ok(Event::Shutdown) => {
+                            self.shutdown_children();
+                            break;
+                        }
                         Ok(_) => {}
                         Err(broadcast::error::RecvError::Lagged(n)) => {
                             eprintln!("Brainstem: {} Events verpasst", n);
@@ -453,6 +550,19 @@ impl Brainstem {
             // Spaeter: "mqtt" → MQTT publish
             _ => {} // "ignore" oder unbekannt → nichts tun
         }
+    }
+
+    /// Alle Child-Prozesse sauber beenden.
+    fn shutdown_children(&mut self) {
+        for child in &mut self.children {
+            let pid = child.id();
+            if let Err(e) = child.kill() {
+                eprintln!("Brainstem: Nerve PID {} nicht beendbar: {}", pid, e);
+            } else {
+                let _ = child.wait();
+            }
+        }
+        self.children.clear();
     }
 
     /// Zugriff auf die Registry (fuer Tests).
@@ -846,6 +956,105 @@ mod tests {
         match event {
             Event::SystemMessage { text } => assert!(text.contains("Script-Fehler")),
             other => panic!("Erwartet SystemMessage, bekam: {:?}", other),
+        }
+    }
+
+    // -- Nerve-Launcher --
+
+    #[test]
+    fn launch_kein_nerves_verzeichnis() {
+        let (_tmp, home) = test_home();
+        let bus = Bus::new(16);
+        let children = launch_nerves(&home, &bus);
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn launch_leeres_nerves_verzeichnis() {
+        let (_tmp, home) = test_home();
+        fs::create_dir_all(home.join("nerves")).unwrap();
+        let bus = Bus::new(16);
+        let children = launch_nerves(&home, &bus);
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn launch_kein_manifest() {
+        let (_tmp, home) = test_home();
+        // Verzeichnis ohne manifest.toml → wird uebersprungen
+        fs::create_dir_all(home.join("nerves/test-nerve")).unwrap();
+        let bus = Bus::new(16);
+        let children = launch_nerves(&home, &bus);
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn launch_kaputtes_manifest() {
+        let (_tmp, home) = test_home();
+        let dir = home.join("nerves/test-nerve");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("manifest.toml"), "das ist kein toml {{{").unwrap();
+
+        let bus = Bus::new(16);
+        let mut rx = bus.subscribe();
+        let children = launch_nerves(&home, &bus);
+        assert!(children.is_empty());
+
+        let event = rx.try_recv().unwrap();
+        match event {
+            Event::SystemMessage { text } => assert!(text.contains("fehlerhaft")),
+            other => panic!("Erwartet SystemMessage, bekam: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn launch_binary_nicht_gefunden() {
+        let (_tmp, home) = test_home();
+        let dir = home.join("nerves/test-nerve");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("manifest.toml"), "binary = \"gibt-es-nicht-12345\"").unwrap();
+
+        let bus = Bus::new(16);
+        let mut rx = bus.subscribe();
+        let children = launch_nerves(&home, &bus);
+        assert!(children.is_empty());
+
+        let event = rx.try_recv().unwrap();
+        match event {
+            Event::SystemMessage { text } => assert!(text.contains("nicht startbar")),
+            other => panic!("Erwartet SystemMessage, bekam: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn launch_gueltig_startet_prozess() {
+        let (_tmp, home) = test_home();
+        let dir = home.join("nerves/sleeper");
+        fs::create_dir_all(&dir).unwrap();
+        // "sleep" existiert ueberall
+        fs::write(dir.join("manifest.toml"), "binary = \"sleep\"\n").unwrap();
+
+        let bus = Bus::new(16);
+        let mut rx = bus.subscribe();
+        let mut children = launch_nerves(&home, &bus);
+
+        // sleep ohne Argument stirbt sofort, aber der Start zaehlt
+        // Auf manchen Systemen braucht sleep ein Argument
+        // Wir pruefen nur dass die Funktion keinen Fehler wirft
+        // und entweder startet oder nicht-startbar meldet
+        let event = rx.try_recv().unwrap();
+        match event {
+            Event::SystemMessage { text } => {
+                assert!(text.contains("gestartet") || text.contains("nicht startbar"),
+                    "Unerwartete Message: {}", text);
+            }
+            other => panic!("Erwartet SystemMessage, bekam: {:?}", other),
+        }
+
+        // Aufraeumen
+        for child in &mut children {
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 

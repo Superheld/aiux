@@ -218,18 +218,20 @@ Jeder Nerve schickt beim Start eine Register-Message auf `aiux/nerve/register`:
 Der Brainstem empfaengt die Registrierung und traegt den Nerve in die Registry ein.
 Danach verarbeitet er Events dieses Nerve wie gewohnt (interpret.rhai, Weiterleitung).
 
-Kein Boot-Scan, kein file-watcher fuer Discovery — jeder Nerve meldet sich selbst.
-Der Heartbeat prueft ob registrierte Nerves noch leben.
+Der Brainstem startet Nerves automatisch: Er scannt `home/nerves/*/manifest.toml`
+beim Boot, findet das `binary`-Feld und startet den Prozess. Der Nerve registriert
+sich dann selbst per MQTT. Bei Shutdown beendet der Brainstem alle Child-Prozesse.
 
-### Nerve-Verzeichnis (optional)
+### Nerve-Verzeichnis
 
 ```
 nerves/system-monitor/
-└── interpret.rhai      # Verarbeitungslogik fuer den Brainstem
+├── manifest.toml       # Pflicht: binary = "nerve-system"
+└── interpret.rhai      # Verarbeitungslogik fuer den Brainstem (optional)
 ```
 
-Nur noetig wenn der Brainstem Events dieses Nerve verarbeiten soll.
-Ohne interpret.rhai werden Events nur geloggt (Fallback).
+`manifest.toml` ist minimal — nur das `binary`-Feld zum Starten.
+Alles andere (Name, Channels, Description) kommt per Self-Registration.
 
 ### Lebenszyklus
 
@@ -266,10 +268,12 @@ flowchart LR
 
 | Aufgabe | Beschreibung |
 |---------|-------------|
+| Nerve-Start | `home/nerves/*/manifest.toml` scannen, Binaries starten |
 | Registration | `aiux/nerve/register` empfangen, Registry-Eintrag anlegen |
 | Verarbeitung | interpret.rhai aus Nerve-Verzeichnis ausfuehren |
 | Registry | Welche Nerves aktiv, welche Channels |
 | Heartbeat | Watchdog, Rhythmen (Puls/Atem), Reminder |
+| Shutdown | Alle Child-Prozesse sauber beenden |
 
 ---
 
