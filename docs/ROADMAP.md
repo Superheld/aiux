@@ -81,13 +81,11 @@ destilliert Wissen automatisch in die passenden Dateien.
 
 ---
 
-## Phase D: Nervensystem
+## Phase D: Nervensystem ✓
 
-> MQTT, Brainstem, erste Nerves. Das System bekommt Sinne.
+> MQTT, Brainstem, Nerves. Das System bekommt Sinne.
 
-### D.1: MQTT-Grundlagen
-
-Mosquitto als externer Bus. Bridge im Core.
+### D.1: MQTT-Grundlagen ✓
 
 - [x] Mosquitto lokal einrichten (Entwicklung)
 - [x] MQTT-Bridge im Core: rumqttc Client, subscribe auf `aiux/nerve/#`
@@ -95,49 +93,49 @@ Mosquitto als externer Bus. Bridge im Core.
 - [x] Config erweitern: mqtt_host, mqtt_port (optional)
 - [x] NerveSignal Event-Typ im internen Bus
 - [x] Bus-to-MQTT: ResponseComplete, SystemMessage, ToolCall nach aiux/cortex/*
-- [x] Tests fuer Bridge (JSON-Parsing, Event-Mapping, Event-Filterung) - 5 Tests, 77 gesamt
+- [x] Tests (5 Tests)
 
-### D.2: Brainstem (Sandbox + Heartbeat)
+### D.2: Brainstem ✓
 
-Laufzeitumgebung fuer Nerve-Verarbeitung. Heartbeat fuer Lebenszeichen
-und Rhythmen. Kann vom Cortex als Reminder genutzt werden.
+- [x] MQTT Message-Schema definieren: Pflichtfelder, Validierung
+- [x] Brainstem-Modul: Registry, Self-Registration, interpret-Ausfuehrung
+- [x] rhai-Engine einbetten (sandboxed, parse_json Hilfsfunktion)
+- [x] Heartbeat: Scheduler mit Cron-Jobs und Einmal-Timern
+- [x] SchedulerTool: Cortex kann Reminder setzen (set, cron, cancel, list)
+- [x] Tests (38 Tests)
 
-- [ ] MQTT Message-Schema definieren: Pflichtfelder, Validierung gegen channels.toml
-- [ ] Brainstem-Modul im Core: Registry, Nerve-Discovery, interpret-Ausfuehrung
-- [ ] Nerve-Verzeichnisse scannen: manifest.toml + channels.toml lesen
-- [ ] Registry: welche Nerves sind aktiv, welche Channels existieren
-- [ ] rhai-Engine einbetten (sandboxed)
-- [ ] Boot-Scan: nerves/*/ beim Start laden
-- [ ] Heartbeat: pruefen ob Nerves noch leben (Watchdog)
-- [ ] Heartbeat: Cortex regelmaessig triggern (Puls, Atem, Tagesrueckblick)
-- [ ] Heartbeat: Cortex kann Reminder setzen ("erinnere mich in 1h")
-- [ ] Tests fuer Brainstem
+### D.3: nerve-system ✓
 
-### D.3: nerve-file
+- [x] Self-Registration: Nerves melden sich per MQTT beim Brainstem an
+- [x] Registration-Schema standardisiert (name, version, description, channels, home)
+- [x] nerve/shared: Gemeinsamer Code (MQTT, Registration)
+- [x] nerve/system: System-Monitor (CPU, RAM, Disk, Temperatur)
+- [x] interpret.rhai: Schwellwert-Filterung (CPU >80%, RAM >90%, Temp >70°C)
+- [x] Nerve-Launcher: Brainstem startet Binaries aus manifest.toml beim Boot
+- [x] Shutdown: Brainstem beendet alle Child-Prozesse sauber
+- [x] Tests (3 Tests nerve-shared, 1 Test nerve-system, 6 Launcher-Tests)
 
-Erster Nerve. Beobachtet Dateiaenderungen in home/.
-Ist gleichzeitig das Discovery-System fuer neue Nerves.
-
-- [ ] nerve-file Binary (notify crate, inotify auf Linux)
-- [ ] MQTT: publish auf aiux/nerve/file/changed
-- [ ] Nerve-Verzeichnis: manifest.toml, channels.toml, interpret.*
-- [ ] Brainstem-Verarbeitung: Config-Reload, Preamble-Reload, Nerve-Discovery
-- [ ] Tests fuer nerve-file
-
-### D.4: nerve-system
-
-Zweiter Nerve. Ueberwacht CPU, RAM, Disk, Temperatur.
-Zeigt das Thalamus-Pattern: Nerve filtert selbst, meldet nur Anomalien.
-
-- [ ] nerve-system Binary (oder Telegraf mit MQTT-Output)
-- [ ] MQTT: publish auf aiux/nerve/system/*
-- [ ] Nerve-Verzeichnis: manifest.toml, channels.toml, interpret.*
-- [ ] Brainstem-Verarbeitung per rhai (Schwellwerte, Trends)
-- [ ] Tests fuer nerve-system
+**Gesamt nach Phase D: 125 Tests (core) + 3 (nerve-shared) + 1 (nerve-system) = 129**
 
 ---
 
-## Phase E: Rollen
+## Phase E: Haende (Shell-Tool)
+
+> Der Agent bekommt Zugriff auf sein System. Unboxed.
+
+Der Cortex braucht ein ShellTool um Befehle ausfuehren zu koennen.
+Damit kann er seinen Koerper kennenlernen, pflegen und Probleme selbst loesen
+(z.B. Mosquitto starten, Logs lesen, Pakete installieren).
+
+- [ ] ShellTool: Cortex kann Shell-Befehle ausfuehren
+- [ ] Sicherheit: Welche Befehle erlaubt? Whitelist, Sandbox, oder komplett offen?
+- [ ] Ausgabe als Text an den Cortex zurueck
+- [ ] Timeout fuer lang laufende Befehle
+- [ ] Tests fuer ShellTool
+
+---
+
+## Phase F: Rollen
 
 > Parallele Agent-Instanzen mit eigener Config und eigenem Memory.
 
@@ -148,11 +146,11 @@ Zeigt das Thalamus-Pattern: Nerve filtert selbst, meldet nur Anomalien.
 - [ ] REPL: /role zum Wechseln, /roles zum Auflisten
 - [ ] Prompt zeigt aktive Rolle: main>, assistent>, etc.
 - [ ] Kommunikation zwischen Rollen ueber Bus
-- [ ] Unit-Tests fuer Phase E
+- [ ] Tests
 
 ---
 
-## Phase F: Chat-Gateway
+## Phase G: Chat-Gateway
 
 > Den direkten Zugang zum Grosshirn ueber richtige Kanaele.
 
@@ -163,19 +161,19 @@ ersetzt die REPL fuer externe Kommunikation.
 - [ ] Telegram-Gateway (erstes echtes Gateway)
 - [ ] Mehrzeilen-Input, Anhaenge (Bilder -> als Pfad/Beschreibung)
 - [ ] MessageTool: Agent kann aktiv Nachrichten senden
-- [ ] Unit-Tests fuer Phase F
+- [ ] Tests
 
 ---
 
-## Phase G: Weitere Nerves
+## Phase H: Weitere Nerves
 
 > Das System spueren und die Umwelt wahrnehmen.
 
 - [ ] nerve-log: Syslog beobachten, Anomalien erkennen
 - [ ] nerve-net: Netzwerk-Status, Erreichbarkeit
+- [ ] nerve-file: Dateiaenderungen beobachten (notify/inotify)
 - [ ] Brainstem-LLM: kleines Modell fuer sprachliche Interpretation
-- [ ] Externe Modelle/APIs fuer Nerves (Ollama, ONNX)
-- [ ] Unit-Tests fuer Phase G
+- [ ] Tests
 
 ---
 
@@ -185,7 +183,6 @@ Kein Zeitplan, keine Reihenfolge. Ideen fuer spaeter:
 
 - Langzeit-Memory: SQLite + RAG (rig-sqlite, semantische Suche)
 - Skills als Markdown (Expertise die geladen wird)
-- Shell-Tool (Agent kann Befehle ausfuehren)
 - Lokale Inference auf Raspi (tract/ONNX)
 - Vision-Nerve (Kamera + lokales Vision-Modell)
 - Audio-Nerve (Mikrofon + Speech-to-Text)
@@ -201,15 +198,15 @@ Frueher offen, jetzt beantwortet:
 | Frage | Antwort |
 |-------|---------|
 | Memory am Bus oder im Core? | Hippocampus hoert auf dem Bus mit (Phase C). MemoryTool bleibt im Core. |
-| Wie werden Nerves angebunden? | Eigene Prozesse, MQTT nach aussen. Nerve liefert Was/Wie/Wohin. |
-| Brainstem = Scheduler? | Brainstem = Sandbox + Heartbeat. Nerve-Verarbeitung (rhai, LLM, APIs) UND Taktgeber (Watchdog, Rhythmen, Reminder). |
-| Nerve-Discovery? | file-watcher Nerve beobachtet nerves/. Bootstrap beim Boot durch Brainstem-Scan. |
+| Wie werden Nerves angebunden? | Eigene Prozesse, MQTT nach aussen. Self-Registration beim Start. |
+| Brainstem = Scheduler? | Brainstem = Sandbox + Heartbeat + Nerve-Launcher. |
+| Nerve-Discovery? | Self-Registration per MQTT. Brainstem startet Binaries aus manifest.toml. |
 | Chat = Nerve? | Nein. Chat ist direkter Zugang zum Cortex. Gateway, kein Nerve. |
-| Cortex bekommt Nerve-Events? | Nicht automatisch. Cortex ist Superuser, kann auf MQTT mitlesen wenn er will. |
-| Nerve-Format? | Verzeichnis unter nerves/ mit manifest.toml, channels.toml, interpret.*, binary. |
+| Cortex bekommt Nerve-Events? | Nicht automatisch. interpret.rhai entscheidet ob/was weitergeleitet wird. |
+| Nerve-Format? | Verzeichnis unter nerves/ mit manifest.toml (binary) + interpret.rhai (optional). Alles andere per Self-Registration. |
 | Scriptsprache? | rhai (sandboxed, eingebettet, fertig). Keine eigene Scriptsprache. |
 | Config wo? | System-Config in home/.system/config.toml. Rollen-Config spaeter in roles/<name>/config.toml. |
 
 ---
 
-*Letzte Aktualisierung: 2026-03-02 (Phase D neu geschnitten: Nervensystem)*
+*Letzte Aktualisierung: 2026-03-03 (Phase D abgeschlossen, Phase E definiert)*
