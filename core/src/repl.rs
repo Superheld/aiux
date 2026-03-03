@@ -27,7 +27,7 @@ impl Repl {
         if info.has_soul { println!("  [+] soul.md"); }
         if info.has_user { println!("  [+] user.md"); }
         if info.has_shortterm { println!("  [+] shortterm.md"); }
-        println!("  [+] Tools: soul, user, memory");
+        println!("  [+] Tools: soul, user, memory, scheduler");
         if info.history_count > 0 {
             println!("  [+] {} History-Nachrichten", info.history_count);
         }
@@ -116,6 +116,10 @@ impl Repl {
                 Ok(Event::Compacted) => {
                     println!("fertig.\n");
                     print!("Du: ");
+                    io::stdout().flush().ok();
+                }
+                Ok(Event::HeartbeatTick { label }) => {
+                    println!("\n[heartbeat: {}]", label);
                     io::stdout().flush().ok();
                 }
                 Ok(Event::NerveSignal { source, event, .. }) => {

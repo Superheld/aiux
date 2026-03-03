@@ -38,6 +38,9 @@ pub enum Event {
     /// Tool wurde aufgerufen
     ToolCall { name: String },
 
+    /// Zeitgesteuerter Trigger vom Brainstem
+    HeartbeatTick { label: String },
+
     /// Signal von einem externen Nerve (ueber MQTT).
     /// Pflichtfelder: source, event, ts. data ist optional.
     NerveSignal {
