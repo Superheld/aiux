@@ -71,16 +71,99 @@ macro_rules! stream_agent {
     }};
 }
 
-/// Baut den System-Prompt aus den drei Memory-Dateien zusammen.
-fn load_preamble(home: &std::path::Path) -> String {
-    let mut parts = Vec::new();
-    for file in ["memory/soul.md", "memory/user.md", "memory/notes.md"] {
-        let content = fs::read_to_string(home.join(file)).unwrap_or_default();
-        if !content.is_empty() {
-            parts.push(content);
+/// Baut den System-Prompt aus Sektionen zusammen (wie OpenClaw Bootstrap).
+/// Reihenfolge: Identity → Koerper → User → Notizen
+fn load_preamble(home: &std::path::Path, config: &Config) -> String {
+    let mut sections = Vec::new();
+
+    // 1. Identitaet (soul.md)
+    let soul = fs::read_to_string(home.join("memory/soul.md")).unwrap_or_default();
+    if !soul.is_empty() {
+        sections.push(soul);
+    }
+
+    // 2. Koerper (dynamisch aus Config generiert)
+    sections.push(build_body_section(config));
+
+    // 3. User-Profil (user.md)
+    let user = fs::read_to_string(home.join("memory/user.md")).unwrap_or_default();
+    if !user.is_empty() {
+        sections.push(user);
+    }
+
+    // 4. Notizen (notes.md)
+    let notes = fs::read_to_string(home.join("memory/notes.md")).unwrap_or_default();
+    if !notes.is_empty() {
+        sections.push(notes);
+    }
+
+    sections.join("\n\n---\n\n")
+}
+
+/// Generiert die Koerper-Sektion: Was bin ich, was habe ich?
+/// Folgt den 6 Schichten aus der PRD:
+/// Sein (Soul) | Denken (Core) | Spueren (Nerves) | Erinnern (Memory) | Wissen (Skills) | Handeln (Tools)
+fn build_body_section(config: &Config) -> String {
+    let mut s = String::from("# Mein Koerper\n\n");
+
+    // --- Denken (Core) ---
+    s.push_str("## Denken — Core\n\n");
+    s.push_str(&format!(
+        "Mein Neocortex laeuft auf {} ({}).\n",
+        config.neocortex.model, config.neocortex.provider
+    ));
+    if let Some(ref hc) = config.hippocampus {
+        s.push_str(&format!(
+            "Mein Hippocampus (unbewusstes Gedaechtnis) laeuft auf {} ({}).\n\
+             Er destilliert Wissen wenn mein Kontext voll wird oder die Session endet.\n",
+            hc.model, hc.provider
+        ));
+    }
+
+    // --- Erinnern (Memory) ---
+    s.push_str("\n## Erinnern — Memory\n\n");
+    s.push_str(
+        "- **soul.md** — Meine Identitaet. Wer ich bin, wie ich spreche.\n\
+         - **user.md** — Mein Wissen ueber Bruce.\n\
+         - **notes.md** — Mein Notizbuch. Hier schreibe ich auf was ich lerne.\n\
+         - **conversations/** — Meine Gespraeche (pro Tag eine Datei, automatisch).\n"
+    );
+
+    // --- Wissen (Skills) ---
+    s.push_str("\n## Wissen — Skills\n\n");
+    s.push_str("Noch keine Skills geladen. Skills sind Expertise als Text — \
+         Anleitungen, Domaenenwissen, Vorlagen. Kein Code, sondern Wissen.\n");
+
+    // --- Handeln (Tools) ---
+    s.push_str("\n## Handeln — Tools\n\n");
+    s.push_str(
+        "- **SoulTool** — soul.md lesen/schreiben\n\
+         - **UserTool** — user.md lesen/schreiben\n\
+         - **MemoryTool** — notes.md lesen/schreiben\n\
+         - **SchedulerTool** — Reminder und Heartbeats planen\n"
+    );
+    if let Some(ref shell) = config.shell {
+        if !shell.whitelist.is_empty() {
+            s.push_str(&format!(
+                "- **ShellTool** — Shell-Befehle ausfuehren (Whitelist: {})\n",
+                shell.whitelist.join(", ")
+            ));
         }
     }
-    parts.join("\n\n---\n\n")
+
+    // --- Spueren (Nerves) ---
+    s.push_str("\n## Spueren — Nerves\n\n");
+    if let Some(ref mqtt) = config.mqtt {
+        s.push_str(&format!(
+            "MQTT-Bus aktiv ({}:{}). Nerves melden sich per MQTT.\n\
+             Ich bekomme Nerve-Signale als Text — ich weiss nicht dass MQTT dahinter steckt.\n",
+            mqtt.host, mqtt.port
+        ));
+    } else {
+        s.push_str("Kein MQTT konfiguriert. Ich habe noch keine Sinne — nur Chat.\n");
+    }
+
+    s
 }
 
 /// Core haelt alles was der Neocortex-Agent braucht.
@@ -112,7 +195,7 @@ impl Core {
     /// Neuen Core erstellen. Laedt Preamble und History.
     pub fn new(bus: Arc<Bus>, home: PathBuf, config: Config, scheduler: SharedScheduler) -> Self {
         dotenvy::dotenv().ok();
-        let preamble_text = load_preamble(&home);
+        let preamble_text = load_preamble(&home, &config);
         let hist = history::load_history(&home);
 
         Self {
@@ -197,7 +280,7 @@ impl Core {
     async fn handle_input(&mut self, input: &str) -> Result<(), anyhow::Error> {
         // Preamble nur neu laden wenn sich context/ geaendert hat (dirty flag vom MemoryTool)
         if self.preamble_dirty.swap(false, Ordering::Relaxed) {
-            self.preamble = load_preamble(&self.home);
+            self.preamble = load_preamble(&self.home, &self.config);
         }
 
         let soul_tool = SoulTool::new(&self.home, Arc::clone(&self.preamble_dirty));
@@ -222,6 +305,7 @@ impl Core {
                     .agent(&self.config.neocortex.model)
                     .preamble(&self.preamble)
                     .temperature(self.config.neocortex.temperature)
+                    .default_max_turns(self.config.neocortex.max_turns)
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
@@ -236,6 +320,7 @@ impl Core {
                     .agent(&self.config.neocortex.model)
                     .preamble(&self.preamble)
                     .temperature(self.config.neocortex.temperature)
+                    .default_max_turns(self.config.neocortex.max_turns)
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
@@ -253,6 +338,7 @@ impl Core {
                     .agent(&self.config.neocortex.model)
                     .preamble(&self.preamble)
                     .temperature(self.config.neocortex.temperature)
+                    .default_max_turns(self.config.neocortex.max_turns)
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
@@ -409,6 +495,7 @@ mod tests {
                 api_key_env: None,
                 context_window: None,
                 compact_threshold: None,
+                max_turns: 10,
             },
             hippocampus: None,
             mqtt: None,
@@ -531,6 +618,93 @@ mod tests {
         assert!(info.has_user);
         assert!(info.has_notes);
     }
+
+    // ==========================================================
+    // build_body_section()
+    // ==========================================================
+
+    #[test]
+    fn body_section_minimal() {
+        let config = test_config();
+        let body = build_body_section(&config);
+        // 6 Schichten pruefen
+        assert!(body.contains("Denken — Core"));
+        assert!(body.contains("Erinnern — Memory"));
+        assert!(body.contains("Wissen — Skills"));
+        assert!(body.contains("Handeln — Tools"));
+        assert!(body.contains("Spueren — Nerves"));
+        // Inhalt
+        assert!(body.contains("Neocortex"));
+        assert!(body.contains("claude-sonnet-4-5-20250929"));
+        assert!(body.contains("Kein MQTT"));
+        assert!(body.contains("Noch keine Skills"));
+        assert!(!body.contains("Hippocampus"));
+        assert!(!body.contains("ShellTool"));
+    }
+
+    #[test]
+    fn body_section_voll() {
+        let mut config = test_config();
+        config.hippocampus = Some(crate::config::AgentConfig {
+            provider: "anthropic".to_string(),
+            model: "claude-haiku-4-5-20251001".to_string(),
+            temperature: 0.7,
+            api_key_env: None,
+            context_window: None,
+            compact_threshold: None,
+            max_turns: 10,
+        });
+        config.mqtt = Some(crate::config::MqttConfig {
+            host: "localhost".to_string(),
+            port: 1883,
+        });
+        config.shell = Some(crate::config::ShellConfig {
+            whitelist: vec!["ls".to_string(), "cat".to_string()],
+            timeout: 30,
+        });
+
+        let body = build_body_section(&config);
+        assert!(body.contains("Hippocampus"));
+        assert!(body.contains("claude-haiku"));
+        assert!(body.contains("MQTT-Bus aktiv"));
+        assert!(body.contains("localhost:1883"));
+        assert!(body.contains("ShellTool"));
+        assert!(body.contains("ls, cat"));
+    }
+
+    // ==========================================================
+    // load_preamble()
+    // ==========================================================
+
+    #[test]
+    fn preamble_enthaelt_alle_sektionen() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join("memory/soul.md"), "# Soul\nIch bin AIUX.").unwrap();
+        fs::write(home.join("memory/user.md"), "# Bruce\nMein Mensch.").unwrap();
+        fs::write(home.join("memory/notes.md"), "# Notizen\nTest.").unwrap();
+
+        let config = test_config();
+        let preamble = load_preamble(&home, &config);
+        assert!(preamble.contains("Ich bin AIUX"));
+        assert!(preamble.contains("Mein Koerper"));
+        assert!(preamble.contains("Mein Mensch"));
+        assert!(preamble.contains("# Notizen"));
+    }
+
+    #[test]
+    fn preamble_ohne_optionale_dateien() {
+        let (_tmp, home) = test_home();
+        let config = test_config();
+        let preamble = load_preamble(&home, &config);
+        // Koerper-Sektion ist immer da
+        assert!(preamble.contains("Mein Koerper"));
+        // Aber keine User/Notes-Sektion
+        assert!(!preamble.contains("Mein Mensch"));
+    }
+
+    // ==========================================================
+    // boot_info()
+    // ==========================================================
 
     #[test]
     fn boot_info_nichts_vorhanden() {

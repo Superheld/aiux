@@ -21,7 +21,7 @@ whitelist = [
   "ps", "systemctl", "journalctl",
   "mosquitto_pub", "mosquitto_sub",
   "ip", "ping", "ss",
-  "date", "whoami", "hostname",
-  "find", "grep", "which",
+  "date", "whoami", "hostname", "pwd",
+  "find", "grep", "which", "tree",
   "echo",
 ]

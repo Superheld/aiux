@@ -2,10 +2,8 @@
 
 ## Offen
 
-- Neocortex braucht ein MQTT-Tool um selbstaendig Nerves abzufragen (Bridge ist bidirektional)
-- Neocortex nutzt Tools zu wenig — braucht mehr Kontext ueber seine Umgebung
 - REPL: SystemMessages und Heartbeats unterbrechen den User-Input (Timing-Problem)
-- Cron-Verhalten nochmal durchsprechen
+- Cron/Heartbeat: Scheduler-Eintraege sind nur im RAM, ueberleben keinen Neustart. Braucht persistierte Config (z.B. `[heartbeat]` in config.toml) die beim Boot automatisch geladen wird
 
 ## Erledigt
 

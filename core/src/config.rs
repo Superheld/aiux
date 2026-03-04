@@ -22,6 +22,9 @@ pub struct AgentConfig {
     /// Kompaktifizierungs-Schwelle in Prozent (0 = aus). Default: 80.
     #[serde(default)]
     pub compact_threshold: Option<u64>,
+    /// Max Tool-Use Turns pro Anfrage. Default: 10.
+    #[serde(default = "default_max_turns")]
+    pub max_turns: usize,
 }
 
 /// MQTT-Konfiguration (Nervensystem).
@@ -46,6 +49,10 @@ pub struct Config {
 
 fn default_temperature() -> f64 {
     0.7
+}
+
+fn default_max_turns() -> usize {
+    10
 }
 
 fn default_mqtt_port() -> u16 {
@@ -171,6 +178,7 @@ model = "test-model"
         assert!(config.neocortex.api_key_env.is_none());
         assert!(config.neocortex.context_window.is_none());
         assert!(config.neocortex.compact_threshold.is_none());
+        assert_eq!(config.neocortex.max_turns, 10); // Default
     }
 
     #[test]
@@ -198,6 +206,7 @@ host = "localhost"
         assert_eq!(config.neocortex.api_key_env.as_deref(), Some("MY_KEY"));
         assert_eq!(config.neocortex.context_window, Some(50_000));
         assert_eq!(config.neocortex.compact_threshold, Some(90));
+        assert_eq!(config.neocortex.max_turns, 10); // Default
         let hc = config.hippocampus.as_ref().unwrap();
         assert_eq!(hc.provider, "anthropic");
         assert_eq!(hc.model, "claude-haiku-4-5-20251001");
@@ -269,6 +278,7 @@ provider = "anthropic"
                 api_key_env: None,
                 context_window: None,
                 compact_threshold: None,
+                max_turns: 10,
             },
             hippocampus: None,
             mqtt: None,
@@ -287,6 +297,7 @@ provider = "anthropic"
                 api_key_env: Some("MY_CUSTOM_KEY".to_string()),
                 context_window: None,
                 compact_threshold: None,
+                max_turns: 10,
             },
             hippocampus: None,
             mqtt: None,
@@ -309,6 +320,7 @@ provider = "anthropic"
                 api_key_env: None,
                 context_window: None,
                 compact_threshold: None,
+                max_turns: 10,
             },
             hippocampus: None,
             mqtt: None,
@@ -328,6 +340,7 @@ provider = "anthropic"
                 api_key_env: None,
                 context_window: None,
                 compact_threshold: None,
+                max_turns: 10,
             },
             hippocampus: Some(AgentConfig {
                 provider: "ollama".to_string(),
@@ -336,6 +349,7 @@ provider = "anthropic"
                 api_key_env: None,
                 context_window: None,
                 compact_threshold: None,
+                max_turns: 10,
             }),
             mqtt: None,
             shell: None,
