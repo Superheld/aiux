@@ -18,11 +18,12 @@ Aber: Event-Bus steht, Code ist modular, Provider per Config steuerbar.
 - **core/src/events.rs** - Event-Typen (UserInput, ResponseToken, etc.)
 - **core/src/repl.rs** - Kommandozeile (stdin/stdout ueber Bus)
 - **core/src/config.rs** - Agent-Config aus home/config.toml
-- **core/src/tools/memory.rs** - MemoryTool (Kurzzeitgedaechtnis, shortterm.md)
-- **home/config.toml** - Provider, Modell, Temperature, compact_threshold
-- **home/.system/** - Interne Prompts (compact-preamble.md)
-- **home/memory/** - soul.md, user.md, shortterm.md, conversations/
-- **nerve/** - Platzhalter, nicht implementiert
+- **core/src/tools/memory.rs** - MemoryTool (Notizen, notes.md)
+- **core/src/tools/shell.rs** - ShellTool (Shell-Befehle mit Whitelist)
+- **home/.system/config.toml** - Provider, Modell, Temperature, Shell-Whitelist, etc.
+- **home/.system/** - Interne Prompts und Tool-Beschreibungen
+- **home/memory/** - soul.md, user.md, notes.md, conversations/
+- **nerve/** - Nerve-Prozesse (system-monitor, shared lib)
 
 ## Architektur-Regeln
 
@@ -35,7 +36,7 @@ Aber: Event-Bus steht, Code ist modular, Provider per Config steuerbar.
 - **Trennung:** Core kennt keine Nerves direkt. Kommunikation nur ueber Bus.
 - **Rollen:** Parallele Agent-Instanzen mit eigener Config/Memory. Main ist der Boss.
 - **Tools sind Rust-Code im Core.** Kein Plugin-System. Kommt spaeter.
-- **Preamble = soul.md + user.md + shortterm.md.** Reihenfolge ist wichtig.
+- **Preamble = soul.md + user.md + notes.md.** Reihenfolge ist wichtig.
 - **Events:** Alle Kommunikation ueber den Bus. SystemMessage fuer Info an den User.
 - **Kompaktifizierung:** History wird bei Token-Budget automatisch zusammengefasst (compact_threshold).
 - **simple_chat():** Interner LLM-Call ohne Streaming/Tools (fuer Kompaktifizierung etc.).

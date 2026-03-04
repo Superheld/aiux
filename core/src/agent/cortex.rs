@@ -73,7 +73,7 @@ macro_rules! stream_agent {
 /// Baut den System-Prompt aus den drei Memory-Dateien zusammen.
 fn load_preamble(home: &std::path::Path) -> String {
     let mut parts = Vec::new();
-    for file in ["memory/soul.md", "memory/user.md", "memory/shortterm.md"] {
+    for file in ["memory/soul.md", "memory/user.md", "memory/notes.md"] {
         let content = fs::read_to_string(home.join(file)).unwrap_or_default();
         if !content.is_empty() {
             parts.push(content);
@@ -97,7 +97,7 @@ pub struct Core {
 pub struct BootInfo {
     pub has_soul: bool,
     pub has_user: bool,
-    pub has_shortterm: bool,
+    pub has_notes: bool,
     pub history_count: usize,
 }
 
@@ -124,7 +124,7 @@ impl Core {
         BootInfo {
             has_soul: self.home.join("memory/soul.md").exists(),
             has_user: self.home.join("memory/user.md").exists(),
-            has_shortterm: self.home.join("memory/shortterm.md").exists(),
+            has_notes: self.home.join("memory/notes.md").exists(),
             history_count: self.history.len(),
         }
     }
@@ -496,13 +496,13 @@ mod tests {
         let (_tmp, home) = test_home();
         fs::write(home.join("memory/soul.md"), "Soul").unwrap();
         fs::write(home.join("memory/user.md"), "User").unwrap();
-        fs::write(home.join("memory/shortterm.md"), "Notizen").unwrap();
+        fs::write(home.join("memory/notes.md"), "Notizen").unwrap();
 
         let core = test_core(home);
         let info = core.boot_info();
         assert!(info.has_soul);
         assert!(info.has_user);
-        assert!(info.has_shortterm);
+        assert!(info.has_notes);
     }
 
     #[test]
@@ -512,7 +512,7 @@ mod tests {
         let info = core.boot_info();
         assert!(!info.has_soul);
         assert!(!info.has_user);
-        assert!(!info.has_shortterm);
+        assert!(!info.has_notes);
         assert_eq!(info.history_count, 0);
     }
 }

@@ -3,7 +3,7 @@
 // Drei spezialisierte Memory-Tools:
 // - SoulTool: Identitaet und Persoenlichkeit (soul.md)
 // - UserTool: Wissen ueber den Menschen (user.md)
-// - MemoryTool: Kurzzeitgedaechtnis (shortterm.md)
+// - MemoryTool: Notizen und Gelerntes (notes.md)
 
 pub mod memory;
 pub mod scheduler;
@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
 
 /// Ergebnis aller Tool-Aktionen.
 #[derive(Serialize)]
@@ -44,17 +45,6 @@ pub struct ToolArgs {
     /// Neuer Text der den alten ersetzt (nur bei edit)
     #[serde(default)]
     pub new_content: String,
-    /// Name der Notiz, ohne .md (nur bei memory Tool)
-    #[serde(default)]
-    pub key: String,
-}
-
-/// Laedt eine Tool-Beschreibung aus einer Datei, mit Fallback.
-pub fn load_description(home: &Path, filename: &str, fallback: &str) -> String {
-    let path = home.join(format!(".system/{}", filename));
-    fs::read_to_string(path)
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|_| fallback.to_string())
 }
 
 /// Fuehrt eine Aktion auf einer einzelnen Datei aus (fuer soul und user).

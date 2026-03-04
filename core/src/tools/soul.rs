@@ -11,9 +11,9 @@ use std::sync::Arc;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use super::{execute_single_file, load_description, ToolArgs, ToolError, ToolResult};
+use super::{execute_single_file, ToolArgs, ToolError, ToolResult};
 
-const DEFAULT_DESCRIPTION: &str = "Aktualisiere deine Identitaet und Persoenlichkeit. \
+const DESCRIPTION: &str = "Aktualisiere deine Identitaet und Persoenlichkeit. \
     Nutze dieses Tool wenn du merkst dass sich deine Werte, dein Kommunikationsstil \
     oder dein Selbstbild veraendert haben. Die soul.md definiert wer du bist.";
 
@@ -25,10 +25,9 @@ pub struct SoulTool {
 
 impl SoulTool {
     pub fn new(home: &Path, preamble_dirty: Arc<AtomicBool>) -> Self {
-        let description = load_description(home, "tool-soul.md", DEFAULT_DESCRIPTION);
         Self {
             path: home.join("memory/soul.md"),
-            description,
+            description: DESCRIPTION.to_string(),
             preamble_dirty,
         }
     }
@@ -109,7 +108,6 @@ mod tests {
             content: content.to_string(),
             old_content: String::new(),
             new_content: String::new(),
-            key: String::new(),
         }
     }
 
@@ -119,7 +117,6 @@ mod tests {
             content: String::new(),
             old_content: old.to_string(),
             new_content: new.to_string(),
-            key: String::new(),
         }
     }
 
@@ -252,21 +249,7 @@ mod tests {
     // ==========================================================
 
     #[tokio::test]
-    async fn beschreibung_aus_datei() {
-        let tmp = TempDir::new().unwrap();
-        let home = tmp.path().to_path_buf();
-        fs::create_dir_all(home.join("memory")).unwrap();
-        fs::create_dir_all(home.join(".system")).unwrap();
-        fs::write(home.join(".system/tool-soul.md"), "Custom Soul Beschreibung").unwrap();
-
-        let dirty = Arc::new(AtomicBool::new(false));
-        let tool = SoulTool::new(&home, dirty);
-        let def = tool.definition(String::new()).await;
-        assert_eq!(def.description, "Custom Soul Beschreibung");
-    }
-
-    #[tokio::test]
-    async fn beschreibung_fallback() {
+    async fn beschreibung() {
         let (_tmp, tool) = test_tool();
         let def = tool.definition(String::new()).await;
         assert!(def.description.contains("Identitaet"));

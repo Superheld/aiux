@@ -72,7 +72,7 @@ Hippocampus-Call bei Kompaktifizierung und Memory-Flush (/clear, /quit)
 destilliert Wissen automatisch in die passenden Dateien.
 
 - [x] Tools-Modul: SoulTool, UserTool, MemoryTool (read/write/edit/append)
-- [x] Konfigurierbare Tool-Beschreibungen aus home/.system/tool-*.md
+- [x] Tool-Beschreibungen fest im Code (nicht konfigurierbar)
 - [x] ToolCall Event: Tool-Aufrufe als SystemMessage sichtbar
 - [x] Hippocampus-Call: Kompaktifizierung mit Tools (destilliert Wissen)
 - [x] Memory-Flush bei /clear und /quit (sichert Wissen vor Loeschen)

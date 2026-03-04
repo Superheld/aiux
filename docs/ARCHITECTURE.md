@@ -123,7 +123,7 @@ Die Bridge validiert Pflichtfelder — fehlende Felder oder kein JSON → Warnun
 flowchart LR
   subgraph Cortex
     direction TB
-    C1[soul + user + shortterm] --> C2[rig-Agent]
+    C1[soul + user + notes] --> C2[rig-Agent]
     C2 --> C3[Streaming + Tools]
   end
   subgraph Hippocampus
@@ -137,7 +137,7 @@ flowchart LR
 
 | Agent | Tools | History | Ausloeser |
 |-------|-------|---------|-----------|
-| **Cortex** | soul, user, memory | ja, Streaming | UserInput via Bus |
+| **Cortex** | soul, user, memory, scheduler, shell | ja, Streaming | UserInput via Bus |
 | **Hippocampus** | soul, user, memory | nein | Schwellwert, /clear, /quit |
 
 ### Agent-Factory
@@ -163,7 +163,7 @@ flowchart TD
   subgraph Preamble["Preamble (bei jedem LLM-Call)"]
     soul.md --> P[" "]
     user.md --> P
-    shortterm.md --> P
+    notes.md --> P
   end
   P --> Cortex
   Conv["conversations/\nYYYY-MM-DD.json"] --> Cortex
@@ -172,7 +172,7 @@ flowchart TD
 
 | Typ | Format | Lebensdauer |
 |-----|--------|-------------|
-| **Kurzzeit** | shortterm.md | Permanent, Agent verwaltet (MemoryTool) |
+| **Notizen** | notes.md | Permanent, Agent verwaltet (MemoryTool) |
 | **Konversation** | conversation-YYYY-MM-DD.json | Pro Tag |
 | **Langzeit** | SQLite + RAG (geplant) | Permanent, durchsuchbar |
 
@@ -290,16 +290,14 @@ aiux/
 │   ├── mqtt.rs              # MQTT-Bridge
 │   ├── agent/{cortex,hippocampus}.rs
 │   ├── bus/{mod,events}.rs
-│   └── tools/{soul,user,memory}.rs
+│   └── tools/{soul,user,memory,scheduler,shell}.rs
 ├── nerve/                   # Nerve-Binaries
 │   ├── shared/              # Gemeinsamer Code (MQTT, Registration)
 │   └── system/              # nerve-system Binary
 ├── home/
 │   ├── .system/             # Config + System-Prompts
-│   ├── memory/              # soul.md, user.md, shortterm.md, conversations/
-│   ├── nerves/              # Nerve-Verzeichnisse
-│   ├── skills/              # Platzhalter
-│   └── tools/               # Platzhalter
+│   ├── memory/              # soul.md, user.md, notes.md, conversations/
+│   └── nerves/              # Nerve-Verzeichnisse
 └── docs/
 ```
 
