@@ -1,15 +1,15 @@
 // Config: Agent-Konfiguration aus TOML laden.
 //
-// Flaches Format: provider, model, temperature direkt auf Top-Level.
+// Strukturiert mit TOML Tables: [cortex], [hippocampus], [mqtt].
 // Liegt in home/.system/config.toml.
 
 use std::path::Path;
 
 use serde::Deserialize;
 
-/// Konfiguration fuer den Agent.
+/// Konfiguration fuer einen einzelnen Agent (Cortex oder Hippocampus).
 #[derive(Debug, Clone, Deserialize)]
-pub struct Config {
+pub struct AgentConfig {
     pub provider: String,
     pub model: String,
     #[serde(default = "default_temperature")]
@@ -22,42 +22,58 @@ pub struct Config {
     /// Kompaktifizierungs-Schwelle in Prozent (0 = aus). Default: 80.
     #[serde(default)]
     pub compact_threshold: Option<u64>,
-    /// MQTT-Host. None = MQTT deaktiviert.
-    #[serde(default)]
-    pub mqtt_host: Option<String>,
-    /// MQTT-Port. Default: 1883.
-    #[serde(default)]
-    pub mqtt_port: Option<u16>,
-    /// Hippocampus-Provider. None = gleicher Provider wie Cortex.
-    #[serde(default)]
-    pub hippocampus_provider: Option<String>,
-    /// Hippocampus-Model. None = gleiches Model wie Cortex.
-    #[serde(default)]
-    pub hippocampus_model: Option<String>,
+}
+
+/// MQTT-Konfiguration (Nervensystem).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MqttConfig {
+    pub host: String,
+    #[serde(default = "default_mqtt_port")]
+    pub port: u16,
+}
+
+/// Gesamtkonfiguration mit TOML Tables.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Config {
+    pub cortex: AgentConfig,
+    /// Hippocampus-Config. Optional — Fallback auf Cortex-Werte.
+    pub hippocampus: Option<AgentConfig>,
+    /// MQTT-Config. Optional — wenn nicht vorhanden: MQTT deaktiviert.
+    pub mqtt: Option<MqttConfig>,
 }
 
 fn default_temperature() -> f64 {
     0.7
 }
 
+fn default_mqtt_port() -> u16 {
+    1883
+}
+
 impl Config {
     /// Provider fuer den Hippocampus (Fallback auf Cortex-Provider).
     pub fn hippocampus_provider(&self) -> &str {
-        self.hippocampus_provider.as_deref().unwrap_or(&self.provider)
+        self.hippocampus
+            .as_ref()
+            .map(|h| h.provider.as_str())
+            .unwrap_or(&self.cortex.provider)
     }
 
     /// Model fuer den Hippocampus (Fallback auf Cortex-Model).
     pub fn hippocampus_model(&self) -> &str {
-        self.hippocampus_model.as_deref().unwrap_or(&self.model)
+        self.hippocampus
+            .as_ref()
+            .map(|h| h.model.as_str())
+            .unwrap_or(&self.cortex.model)
     }
 
     /// Gibt den Namen der Env-Variable fuer den API-Key zurueck.
     /// Entweder explizit konfiguriert oder der Default pro Provider.
     pub fn api_key_env(&self) -> &str {
-        if let Some(ref env) = self.api_key_env {
+        if let Some(ref env) = self.cortex.api_key_env {
             return env;
         }
-        match self.provider.as_str() {
+        match self.cortex.provider.as_str() {
             "anthropic" => "ANTHROPIC_API_KEY",
             "mistral" => "MISTRAL_API_KEY",
             "ollama" => "", // Ollama braucht keinen API-Key
@@ -93,67 +109,105 @@ mod tests {
     }
 
     // ==========================================================
-    // Config::load() - flaches Format
+    // Config::load() - TOML Tables
     // ==========================================================
 
     #[test]
-    fn config_laden_flaches_format() {
+    fn config_laden_nur_cortex() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
+[cortex]
 provider = "anthropic"
 model = "claude-sonnet-4-5-20250929"
 temperature = 0.5
 "#).unwrap();
 
         let config = Config::load(&home).unwrap();
-        assert_eq!(config.provider, "anthropic");
-        assert_eq!(config.model, "claude-sonnet-4-5-20250929");
-        assert_eq!(config.temperature, 0.5);
+        assert_eq!(config.cortex.provider, "anthropic");
+        assert_eq!(config.cortex.model, "claude-sonnet-4-5-20250929");
+        assert_eq!(config.cortex.temperature, 0.5);
+        assert!(config.hippocampus.is_none());
+        assert!(config.mqtt.is_none());
     }
 
     #[test]
     fn config_defaults_temperature() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
+[cortex]
 provider = "anthropic"
 model = "claude-sonnet-4-5-20250929"
 "#).unwrap();
 
         let config = Config::load(&home).unwrap();
-        assert_eq!(config.temperature, 0.7); // Default
+        assert_eq!(config.cortex.temperature, 0.7); // Default
     }
 
     #[test]
     fn config_defaults_optionale_felder() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
+[cortex]
 provider = "anthropic"
 model = "test-model"
 "#).unwrap();
 
         let config = Config::load(&home).unwrap();
-        assert!(config.api_key_env.is_none());
-        assert!(config.context_window.is_none());
-        assert!(config.compact_threshold.is_none());
+        assert!(config.cortex.api_key_env.is_none());
+        assert!(config.cortex.context_window.is_none());
+        assert!(config.cortex.compact_threshold.is_none());
     }
 
     #[test]
-    fn config_alle_felder_gesetzt() {
+    fn config_alle_sections() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
+[cortex]
 provider = "mistral"
 model = "mistral-large-latest"
 temperature = 0.3
 api_key_env = "MY_KEY"
 context_window = 50000
 compact_threshold = 90
+
+[hippocampus]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+
+[mqtt]
+host = "localhost"
 "#).unwrap();
 
         let config = Config::load(&home).unwrap();
-        assert_eq!(config.provider, "mistral");
-        assert_eq!(config.api_key_env.as_deref(), Some("MY_KEY"));
-        assert_eq!(config.context_window, Some(50_000));
-        assert_eq!(config.compact_threshold, Some(90));
+        assert_eq!(config.cortex.provider, "mistral");
+        assert_eq!(config.cortex.api_key_env.as_deref(), Some("MY_KEY"));
+        assert_eq!(config.cortex.context_window, Some(50_000));
+        assert_eq!(config.cortex.compact_threshold, Some(90));
+        let hc = config.hippocampus.as_ref().unwrap();
+        assert_eq!(hc.provider, "anthropic");
+        assert_eq!(hc.model, "claude-haiku-4-5-20251001");
+        let mqtt = config.mqtt.as_ref().unwrap();
+        assert_eq!(mqtt.host, "localhost");
+        assert_eq!(mqtt.port, 1883); // Default
+    }
+
+    #[test]
+    fn config_mqtt_mit_port() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join(".system/config.toml"), r#"
+[cortex]
+provider = "anthropic"
+model = "test"
+
+[mqtt]
+host = "192.168.1.1"
+port = 9883
+"#).unwrap();
+
+        let config = Config::load(&home).unwrap();
+        let mqtt = config.mqtt.as_ref().unwrap();
+        assert_eq!(mqtt.host, "192.168.1.1");
+        assert_eq!(mqtt.port, 9883);
     }
 
     #[test]
@@ -168,6 +222,7 @@ compact_threshold = 90
     fn config_fehlende_pflichtfelder() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
+[cortex]
 provider = "anthropic"
 "#).unwrap();
 
@@ -192,16 +247,16 @@ provider = "anthropic"
     #[test]
     fn api_key_env_default_anthropic() {
         let config = Config {
-            provider: "anthropic".to_string(),
-            model: "test".to_string(),
-            temperature: 0.7,
-            api_key_env: None,
-            context_window: None,
-            compact_threshold: None,
-            mqtt_host: None,
-            mqtt_port: None,
-            hippocampus_provider: None,
-            hippocampus_model: None,
+            cortex: AgentConfig {
+                provider: "anthropic".to_string(),
+                model: "test".to_string(),
+                temperature: 0.7,
+                api_key_env: None,
+                context_window: None,
+                compact_threshold: None,
+            },
+            hippocampus: None,
+            mqtt: None,
         };
         assert_eq!(config.api_key_env(), "ANTHROPIC_API_KEY");
     }
@@ -209,16 +264,16 @@ provider = "anthropic"
     #[test]
     fn api_key_env_custom() {
         let config = Config {
-            provider: "anthropic".to_string(),
-            model: "test".to_string(),
-            temperature: 0.7,
-            api_key_env: Some("MY_CUSTOM_KEY".to_string()),
-            context_window: None,
-            compact_threshold: None,
-            mqtt_host: None,
-            mqtt_port: None,
-            hippocampus_provider: None,
-            hippocampus_model: None,
+            cortex: AgentConfig {
+                provider: "anthropic".to_string(),
+                model: "test".to_string(),
+                temperature: 0.7,
+                api_key_env: Some("MY_CUSTOM_KEY".to_string()),
+                context_window: None,
+                compact_threshold: None,
+            },
+            hippocampus: None,
+            mqtt: None,
         };
         assert_eq!(config.api_key_env(), "MY_CUSTOM_KEY");
     }
@@ -230,16 +285,16 @@ provider = "anthropic"
     #[test]
     fn hippocampus_fallback_auf_cortex() {
         let config = Config {
-            provider: "anthropic".to_string(),
-            model: "claude-sonnet".to_string(),
-            temperature: 0.7,
-            api_key_env: None,
-            context_window: None,
-            compact_threshold: None,
-            mqtt_host: None,
-            mqtt_port: None,
-            hippocampus_provider: None,
-            hippocampus_model: None,
+            cortex: AgentConfig {
+                provider: "anthropic".to_string(),
+                model: "claude-sonnet".to_string(),
+                temperature: 0.7,
+                api_key_env: None,
+                context_window: None,
+                compact_threshold: None,
+            },
+            hippocampus: None,
+            mqtt: None,
         };
         assert_eq!(config.hippocampus_provider(), "anthropic");
         assert_eq!(config.hippocampus_model(), "claude-sonnet");
@@ -248,36 +303,25 @@ provider = "anthropic"
     #[test]
     fn hippocampus_eigenes_model() {
         let config = Config {
-            provider: "anthropic".to_string(),
-            model: "claude-sonnet".to_string(),
-            temperature: 0.7,
-            api_key_env: None,
-            context_window: None,
-            compact_threshold: None,
-            mqtt_host: None,
-            mqtt_port: None,
-            hippocampus_provider: Some("ollama".to_string()),
-            hippocampus_model: Some("llama3".to_string()),
+            cortex: AgentConfig {
+                provider: "anthropic".to_string(),
+                model: "claude-sonnet".to_string(),
+                temperature: 0.7,
+                api_key_env: None,
+                context_window: None,
+                compact_threshold: None,
+            },
+            hippocampus: Some(AgentConfig {
+                provider: "ollama".to_string(),
+                model: "llama3".to_string(),
+                temperature: 0.7,
+                api_key_env: None,
+                context_window: None,
+                compact_threshold: None,
+            }),
+            mqtt: None,
         };
         assert_eq!(config.hippocampus_provider(), "ollama");
         assert_eq!(config.hippocampus_model(), "llama3");
-    }
-
-    #[test]
-    fn hippocampus_nur_model_override() {
-        let config = Config {
-            provider: "anthropic".to_string(),
-            model: "claude-sonnet".to_string(),
-            temperature: 0.7,
-            api_key_env: None,
-            context_window: None,
-            compact_threshold: None,
-            mqtt_host: None,
-            mqtt_port: None,
-            hippocampus_provider: None,
-            hippocampus_model: Some("claude-haiku".to_string()),
-        };
-        assert_eq!(config.hippocampus_provider(), "anthropic");
-        assert_eq!(config.hippocampus_model(), "claude-haiku");
     }
 }

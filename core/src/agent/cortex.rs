@@ -127,14 +127,14 @@ impl Core {
     /// Info ueber den Boot-Zustand (fuer Anzeige).
     pub fn boot_info(&self) -> BootInfo {
         BootInfo {
-            provider: self.config.provider.clone(),
-            model: self.config.model.clone(),
-            hippocampus_provider: self.config.hippocampus_provider.clone(),
-            hippocampus_model: self.config.hippocampus_model.clone(),
+            provider: self.config.cortex.provider.clone(),
+            model: self.config.cortex.model.clone(),
+            hippocampus_provider: self.config.hippocampus.as_ref().map(|h| h.provider.clone()),
+            hippocampus_model: self.config.hippocampus.as_ref().map(|h| h.model.clone()),
             has_soul: self.home.join("memory/soul.md").exists(),
             has_user: self.home.join("memory/user.md").exists(),
             has_notes: self.home.join("memory/notes.md").exists(),
-            mqtt_active: self.config.mqtt_host.is_some(),
+            mqtt_active: self.config.mqtt.is_some(),
             history_count: self.history.len(),
         }
     }
@@ -204,13 +204,13 @@ impl Core {
 
         // Stream-Verarbeitung passiert im match-Block,
         // weil jeder Provider einen eigenen Rust-Typ erzeugt.
-        let (response_text, usage) = match self.config.provider.as_str() {
+        let (response_text, usage) = match self.config.cortex.provider.as_str() {
             "anthropic" => {
                 let client = anthropic::Client::from_env();
                 let agent = client
-                    .agent(&self.config.model)
+                    .agent(&self.config.cortex.model)
                     .preamble(&self.preamble)
-                    .temperature(self.config.temperature)
+                    .temperature(self.config.cortex.temperature)
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
@@ -221,9 +221,9 @@ impl Core {
             "mistral" => {
                 let client = mistral::Client::from_env();
                 let agent = client
-                    .agent(&self.config.model)
+                    .agent(&self.config.cortex.model)
                     .preamble(&self.preamble)
-                    .temperature(self.config.temperature)
+                    .temperature(self.config.cortex.temperature)
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
@@ -237,9 +237,9 @@ impl Core {
                         anyhow::anyhow!("Ollama-Client konnte nicht erstellt werden: {}", e)
                     })?;
                 let agent = client
-                    .agent(&self.config.model)
+                    .agent(&self.config.cortex.model)
                     .preamble(&self.preamble)
-                    .temperature(self.config.temperature)
+                    .temperature(self.config.cortex.temperature)
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
@@ -274,8 +274,8 @@ impl Core {
 
         // Kompaktifizierung pruefen
         if let Some(ref u) = usage {
-            let window = history::context_window_size(&self.config.model, self.config.context_window);
-            let threshold = self.config.compact_threshold.unwrap_or(80);
+            let window = history::context_window_size(&self.config.cortex.model, self.config.cortex.context_window);
+            let threshold = self.config.cortex.compact_threshold.unwrap_or(80);
             if threshold > 0 && history::should_compact(u.input_tokens, window, threshold) {
                 self.bus.publish(Event::Compacting);
                 match self.compact_history().await {
@@ -388,16 +388,16 @@ mod tests {
 
     fn test_config() -> Config {
         Config {
-            provider: "anthropic".to_string(),
-            model: "claude-sonnet-4-5-20250929".to_string(),
-            temperature: 0.7,
-            api_key_env: None,
-            context_window: None,
-            compact_threshold: None,
-            mqtt_host: None,
-            mqtt_port: None,
-            hippocampus_provider: None,
-            hippocampus_model: None,
+            cortex: crate::config::AgentConfig {
+                provider: "anthropic".to_string(),
+                model: "claude-sonnet-4-5-20250929".to_string(),
+                temperature: 0.7,
+                api_key_env: None,
+                context_window: None,
+                compact_threshold: None,
+            },
+            hippocampus: None,
+            mqtt: None,
         }
     }
 
