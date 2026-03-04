@@ -1,10 +1,27 @@
+[neocortex]
 provider = "anthropic"
 model = "claude-sonnet-4-5-20250929"
 temperature = 0.7
-# api_key_env = "ANTHROPIC_API_KEY"  # Default, muss nicht angegeben werden
-# context_window = 200000  # Override, z.B. fuer Ollama-Modelle
-# compact_threshold = 80  # Kompaktifizierung bei X% Context-Window (0 = aus)
+context_window = 200000
+compact_threshold = 80
 
-# --- MQTT (Nervensystem) ---
-# mqtt_host = "localhost"  # Aktiviert MQTT-Bridge (ohne = deaktiviert)
-# mqtt_port = 1883         # Default: 1883
+[hippocampus]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+
+[mqtt]
+host = "localhost"
+port = 1883
+
+[shell]
+timeout = 30
+whitelist = [
+  "ls", "cat", "head", "tail", "wc",
+  "df", "free", "uptime", "uname",
+  "ps", "systemctl", "journalctl",
+  "mosquitto_pub", "mosquitto_sub",
+  "ip", "ping", "ss",
+  "date", "whoami", "hostname", "pwd",
+  "find", "grep", "which", "tree",
+  "echo",
+]

@@ -1,7 +1,7 @@
-// MemoryTool: Kurzzeitgedaechtnis des Agents.
+// MemoryTool: Notizen des Agents.
 //
-// Ziel: memory/shortterm.md
-// Arbeitsnotizen, Kontext, offene Fragen.
+// Ziel: memory/notes.md
+// Arbeitsnotizen, Gelerntes, offene Fragen.
 // Notizen ueberleben Sessions und werden beim Start in den Preamble geladen.
 
 use std::path::{Path, PathBuf};
@@ -11,10 +11,10 @@ use std::sync::Arc;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use super::{execute_single_file, load_description, ToolArgs, ToolError, ToolResult};
+use super::{execute_single_file, ToolArgs, ToolError, ToolResult};
 
-const DEFAULT_DESCRIPTION: &str = "Speichere und lese Arbeitsnotizen im Kurzzeitgedaechtnis. \
-    Nutze dieses Tool fuer Kontext, Arbeitsnotizen, offene Fragen. \
+const DESCRIPTION: &str = "Speichere und lese Notizen. \
+    Nutze dieses Tool fuer Arbeitsnotizen, Gelerntes, Entscheidungen, offene Fragen. \
     Notizen ueberleben Sessions und werden beim Start automatisch geladen.";
 
 pub struct MemoryTool {
@@ -25,10 +25,9 @@ pub struct MemoryTool {
 
 impl MemoryTool {
     pub fn new(home: &Path, preamble_dirty: Arc<AtomicBool>) -> Self {
-        let description = load_description(home, "tool-memory.md", DEFAULT_DESCRIPTION);
         Self {
-            path: home.join("memory/shortterm.md"),
-            description,
+            path: home.join("memory/notes.md"),
+            description: DESCRIPTION.to_string(),
             preamble_dirty,
         }
     }
@@ -109,7 +108,6 @@ mod tests {
             content: content.to_string(),
             old_content: String::new(),
             new_content: String::new(),
-            key: String::new(),
         }
     }
 
@@ -119,7 +117,6 @@ mod tests {
             content: String::new(),
             old_content: old.to_string(),
             new_content: new.to_string(),
-            key: String::new(),
         }
     }
 
@@ -130,7 +127,7 @@ mod tests {
     #[tokio::test]
     async fn read_existierende_datei() {
         let (tmp, tool) = test_tool();
-        fs::write(tmp.path().join("memory/shortterm.md"), "Hallo").unwrap();
+        fs::write(tmp.path().join("memory/notes.md"), "Hallo").unwrap();
 
         let result = tool.call(args("read", "")).await.unwrap();
         assert!(result.success);
@@ -157,18 +154,18 @@ mod tests {
         let result = tool.call(args("write", "Neue Notiz")).await.unwrap();
         assert!(result.success);
 
-        let content = fs::read_to_string(tmp.path().join("memory/shortterm.md")).unwrap();
+        let content = fs::read_to_string(tmp.path().join("memory/notes.md")).unwrap();
         assert_eq!(content, "Neue Notiz");
     }
 
     #[tokio::test]
     async fn write_ueberschreibt() {
         let (tmp, tool) = test_tool();
-        fs::write(tmp.path().join("memory/shortterm.md"), "Alt").unwrap();
+        fs::write(tmp.path().join("memory/notes.md"), "Alt").unwrap();
 
         tool.call(args("write", "Neu")).await.unwrap();
 
-        let content = fs::read_to_string(tmp.path().join("memory/shortterm.md")).unwrap();
+        let content = fs::read_to_string(tmp.path().join("memory/notes.md")).unwrap();
         assert_eq!(content, "Neu");
     }
 
@@ -187,19 +184,19 @@ mod tests {
     #[tokio::test]
     async fn edit_ersetzt_abschnitt() {
         let (tmp, tool) = test_tool();
-        fs::write(tmp.path().join("memory/shortterm.md"), "Rust ist toll und schnell.").unwrap();
+        fs::write(tmp.path().join("memory/notes.md"), "Rust ist toll und schnell.").unwrap();
 
         let result = tool.call(edit_args("toll", "super")).await.unwrap();
         assert!(result.success);
 
-        let content = fs::read_to_string(tmp.path().join("memory/shortterm.md")).unwrap();
+        let content = fs::read_to_string(tmp.path().join("memory/notes.md")).unwrap();
         assert_eq!(content, "Rust ist super und schnell.");
     }
 
     #[tokio::test]
     async fn edit_old_content_nicht_gefunden() {
         let (tmp, tool) = test_tool();
-        fs::write(tmp.path().join("memory/shortterm.md"), "Inhalt").unwrap();
+        fs::write(tmp.path().join("memory/notes.md"), "Inhalt").unwrap();
 
         let result = tool.call(edit_args("gibts nicht", "egal")).await;
         assert!(result.is_err());
@@ -208,7 +205,7 @@ mod tests {
     #[tokio::test]
     async fn edit_setzt_dirty_flag() {
         let (tmp, tool, dirty) = test_tool_with_dirty();
-        fs::write(tmp.path().join("memory/shortterm.md"), "Alt").unwrap();
+        fs::write(tmp.path().join("memory/notes.md"), "Alt").unwrap();
 
         tool.call(edit_args("Alt", "Neu")).await.unwrap();
         assert!(dirty.load(Ordering::Relaxed));
@@ -221,11 +218,11 @@ mod tests {
     #[tokio::test]
     async fn append_an_bestehende_datei() {
         let (tmp, tool) = test_tool();
-        fs::write(tmp.path().join("memory/shortterm.md"), "Zeile 1").unwrap();
+        fs::write(tmp.path().join("memory/notes.md"), "Zeile 1").unwrap();
 
         tool.call(args("append", "Zeile 2")).await.unwrap();
 
-        let content = fs::read_to_string(tmp.path().join("memory/shortterm.md")).unwrap();
+        let content = fs::read_to_string(tmp.path().join("memory/notes.md")).unwrap();
         assert_eq!(content, "Zeile 1\nZeile 2");
     }
 
@@ -235,7 +232,7 @@ mod tests {
 
         tool.call(args("append", "Erster Inhalt")).await.unwrap();
 
-        let content = fs::read_to_string(tmp.path().join("memory/shortterm.md")).unwrap();
+        let content = fs::read_to_string(tmp.path().join("memory/notes.md")).unwrap();
         assert_eq!(content, "Erster Inhalt");
     }
 
@@ -252,24 +249,10 @@ mod tests {
     // ==========================================================
 
     #[tokio::test]
-    async fn beschreibung_aus_datei() {
-        let tmp = TempDir::new().unwrap();
-        let home = tmp.path().to_path_buf();
-        fs::create_dir_all(home.join("memory")).unwrap();
-        fs::create_dir_all(home.join(".system")).unwrap();
-        fs::write(home.join(".system/tool-memory.md"), "Custom Memory Beschreibung").unwrap();
-
-        let dirty = Arc::new(AtomicBool::new(false));
-        let tool = MemoryTool::new(&home, dirty);
-        let def = tool.definition(String::new()).await;
-        assert_eq!(def.description, "Custom Memory Beschreibung");
-    }
-
-    #[tokio::test]
-    async fn beschreibung_fallback() {
+    async fn beschreibung() {
         let (_tmp, tool) = test_tool();
         let def = tool.definition(String::new()).await;
-        assert!(def.description.contains("Kurzzeitgedaechtnis"));
+        assert!(def.description.contains("Notizen"));
     }
 
     // ==========================================================

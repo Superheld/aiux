@@ -125,7 +125,7 @@ Dreiteilig, wie beim Menschen:
 | **Lebensdauer** | Permanent (vom Agent verwaltet) | Pro Tag eine Datei | Permanent |
 | **Pfad** | memory/context/*.md | memory/conversation-YYYY-MM-DD.json | memory/memory.db |
 
-Das Kurzzeitgedaechtnis dient auch als Puffer: wenn der Core eine Nachricht
+Die Notizen (notes.md) dienen auch als Puffer: wenn der Core eine Nachricht
 senden will aber gerade keinen Kanal hat, legt er sie dort ab und sendet
 sie sobald sich die Gelegenheit ergibt.
 
@@ -281,7 +281,7 @@ nerve-messages beobachtet IMAP-Postfach
   -> Event auf Bus
   -> Core empfaengt, nutzt Skill "mail-management"
   -> Core erstellt Task in Memory: "Bericht schreiben, Deadline morgen"
-  -> Bruce nicht erreichbar -> Kurzzeitgedaechtnis
+  -> Bruce nicht erreichbar -> Notizen (notes.md)
   -> Bruce loggt sich ein -> Core: "Du hast eine Mail vom Chef..."
 ```
 

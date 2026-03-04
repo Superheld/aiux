@@ -11,9 +11,9 @@ use std::sync::Arc;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use super::{execute_single_file, load_description, ToolArgs, ToolError, ToolResult};
+use super::{execute_single_file, ToolArgs, ToolError, ToolResult};
 
-const DEFAULT_DESCRIPTION: &str = "Aktualisiere dein Wissen ueber deinen Menschen. \
+const DESCRIPTION: &str = "Aktualisiere dein Wissen ueber deinen Menschen. \
     Nutze dieses Tool wenn du Neues ueber Bruce erfahren hast - \
     Vorlieben, Skills, Gewohnheiten, Projekte. Die user.md ist dein Bild von ihm.";
 
@@ -25,10 +25,9 @@ pub struct UserTool {
 
 impl UserTool {
     pub fn new(home: &Path, preamble_dirty: Arc<AtomicBool>) -> Self {
-        let description = load_description(home, "tool-user.md", DEFAULT_DESCRIPTION);
         Self {
             path: home.join("memory/user.md"),
-            description,
+            description: DESCRIPTION.to_string(),
             preamble_dirty,
         }
     }
@@ -109,7 +108,6 @@ mod tests {
             content: content.to_string(),
             old_content: String::new(),
             new_content: String::new(),
-            key: String::new(),
         }
     }
 
@@ -119,7 +117,6 @@ mod tests {
             content: String::new(),
             old_content: old.to_string(),
             new_content: new.to_string(),
-            key: String::new(),
         }
     }
 
@@ -197,21 +194,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn beschreibung_aus_datei() {
-        let tmp = TempDir::new().unwrap();
-        let home = tmp.path().to_path_buf();
-        fs::create_dir_all(home.join("memory")).unwrap();
-        fs::create_dir_all(home.join(".system")).unwrap();
-        fs::write(home.join(".system/tool-user.md"), "Custom User Beschreibung").unwrap();
-
-        let dirty = Arc::new(AtomicBool::new(false));
-        let tool = UserTool::new(&home, dirty);
-        let def = tool.definition(String::new()).await;
-        assert_eq!(def.description, "Custom User Beschreibung");
-    }
-
-    #[tokio::test]
-    async fn beschreibung_fallback() {
+    async fn beschreibung() {
         let (_tmp, tool) = test_tool();
         let def = tool.definition(String::new()).await;
         assert!(def.description.contains("Wissen ueber deinen Menschen"));

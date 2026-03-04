@@ -1,7 +1,7 @@
 // History: Conversation-Persistenz und Kompaktifizierungs-Schwellwert.
 //
 // Tages-History als JSON in memory/conversations/.
-// Systemfunktionen - gehoeren keinem Agent, werden vom Cortex genutzt.
+// Systemfunktionen - gehoeren keinem Agent, werden vom Neocortex genutzt.
 
 use std::fs;
 use std::path::{Path, PathBuf};

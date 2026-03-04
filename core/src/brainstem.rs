@@ -542,7 +542,7 @@ impl Brainstem {
             .unwrap_or_default();
 
         match target.as_str() {
-            "cortex" => {
+            "neocortex" => {
                 self.bus.publish(Event::SystemMessage {
                     text: format!("Brainstem [{}]: {}", nerve_name, text),
                 });
@@ -770,10 +770,10 @@ mod tests {
     // -- rhai Script-Ausfuehrung --
 
     #[test]
-    fn rhai_forward_true_cortex() {
+    fn rhai_forward_true_neocortex() {
         let (_tmp, home) = test_home();
         write_script(&home, "nerves/test-nerve", r#"
-            #{ forward: true, target: "cortex", text: `Hallo von ${source}` }
+            #{ forward: true, target: "neocortex", text: `Hallo von ${source}` }
         "#);
         let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         let mut rx = bus.subscribe();
@@ -809,7 +809,7 @@ mod tests {
     fn rhai_script_variablen() {
         let (_tmp, home) = test_home();
         write_script(&home, "nerves/test-nerve", r#"
-            #{ forward: true, target: "cortex", text: `${source}|${event}|${ts}` }
+            #{ forward: true, target: "neocortex", text: `${source}|${event}|${ts}` }
         "#);
         let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         let mut rx = bus.subscribe();
@@ -885,7 +885,7 @@ mod tests {
         write_script(&home, "nerves/test-nerve", r#"
             let d = parse_json(data);
             if d.label == "alert" {
-                #{ forward: true, target: "cortex", text: `Alarm: ${d.msg}` }
+                #{ forward: true, target: "neocortex", text: `Alarm: ${d.msg}` }
             } else {
                 #{ forward: false }
             }
@@ -909,7 +909,7 @@ mod tests {
         write_script(&home, "nerves/test-nerve", r#"
             let d = parse_json(data);
             if d.label == "alert" {
-                #{ forward: true, target: "cortex", text: "ja" }
+                #{ forward: true, target: "neocortex", text: "ja" }
             } else {
                 #{ forward: false }
             }

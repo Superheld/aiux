@@ -30,10 +30,6 @@ async fn main() -> Result<(), anyhow::Error> {
     // Config laden
     let config = Config::load(&home)?;
 
-    // MQTT-Bridge: Verbindung zur Aussenwelt (optional)
-    let mqtt_host = config.mqtt_host.clone();
-    let mqtt_port = config.mqtt_port;
-
     // SharedScheduler: geteilter Zustand fuer Timer/Cron
     let scheduler = Arc::new(Mutex::new(Vec::new()));
 
@@ -41,14 +37,14 @@ async fn main() -> Result<(), anyhow::Error> {
     let brainstem = Brainstem::new(bus.clone(), &home, scheduler.clone());
     tokio::spawn(async move { brainstem.run().await });
 
-    // Core: das Gehirn (konsumiert config + home)
-    let core = Core::new(bus.clone(), home, config, scheduler);
-
-    if let Some(host) = mqtt_host {
-        let port = mqtt_port.unwrap_or(1883);
-        let bridge = MqttBridge::new(bus.clone(), &host, port);
+    // MQTT-Bridge: Verbindung zur Aussenwelt (optional)
+    if let Some(ref mqtt) = config.mqtt {
+        let bridge = MqttBridge::new(bus.clone(), &mqtt.host, mqtt.port);
         tokio::spawn(async move { bridge.run().await });
     }
+
+    // Core: das Gehirn (konsumiert config + home)
+    let core = Core::new(bus.clone(), home, config, scheduler);
     let boot_info = core.boot_info();
 
     if !boot_info.has_soul {

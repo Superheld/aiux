@@ -3,7 +3,7 @@
 // Jeder Agent ist eine eigene Datei.
 // mod.rs ist nur der Einstiegspunkt (Rust-Konvention fuer Verzeichnis-Module).
 
-pub mod cortex;
+pub mod neocortex;
 mod hippocampus;
 
-pub use cortex::{BootInfo, Core};
+pub use neocortex::{BootInfo, Core};
