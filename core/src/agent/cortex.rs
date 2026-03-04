@@ -21,7 +21,9 @@ use crate::bus::events::Event;
 use crate::config::Config;
 use crate::history;
 use super::hippocampus;
+use crate::brainstem::SharedScheduler;
 use crate::tools::memory::MemoryTool;
+use crate::tools::scheduler::SchedulerTool;
 use crate::tools::soul::SoulTool;
 use crate::tools::user::UserTool;
 
@@ -88,6 +90,7 @@ pub struct Core {
     config: Config,
     preamble: String,
     preamble_dirty: Arc<AtomicBool>,
+    scheduler: SharedScheduler,
 }
 
 /// Boot-Info fuer die Anzeige beim Start.
@@ -100,7 +103,7 @@ pub struct BootInfo {
 
 impl Core {
     /// Neuen Core erstellen. Laedt Preamble und History.
-    pub fn new(bus: Arc<Bus>, home: PathBuf, config: Config) -> Self {
+    pub fn new(bus: Arc<Bus>, home: PathBuf, config: Config, scheduler: SharedScheduler) -> Self {
         dotenvy::dotenv().ok();
         let preamble_text = load_preamble(&home);
         let hist = history::load_history(&home);
@@ -112,6 +115,7 @@ impl Core {
             config,
             preamble: preamble_text,
             preamble_dirty: Arc::new(AtomicBool::new(false)),
+            scheduler,
         }
     }
 
@@ -133,6 +137,10 @@ impl Core {
             match receiver.recv().await {
                 Ok(Event::UserInput { text }) => {
                     self.handle_input(&text).await?;
+                }
+                Ok(Event::HeartbeatTick { label }) => {
+                    let prompt = format!("[HEARTBEAT: {}]", label);
+                    self.handle_input(&prompt).await?;
                 }
                 Ok(Event::ClearHistory) => {
                     // Memory-Flush vor dem Loeschen
@@ -182,6 +190,7 @@ impl Core {
         let soul_tool = SoulTool::new(&self.home, Arc::clone(&self.preamble_dirty));
         let user_tool = UserTool::new(&self.home, Arc::clone(&self.preamble_dirty));
         let memory_tool = MemoryTool::new(&self.home, Arc::clone(&self.preamble_dirty));
+        let scheduler_tool = SchedulerTool::new(self.scheduler.clone());
 
         // Stream-Verarbeitung passiert im match-Block,
         // weil jeder Provider einen eigenen Rust-Typ erzeugt.
@@ -195,6 +204,7 @@ impl Core {
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
+                    .tool(scheduler_tool)
                     .build();
                 stream_agent!(agent, input, self.history_for_agent(), self.bus)
             }
@@ -207,6 +217,7 @@ impl Core {
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
+                    .tool(scheduler_tool)
                     .build();
                 stream_agent!(agent, input, self.history_for_agent(), self.bus)
             }
@@ -222,6 +233,7 @@ impl Core {
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
+                    .tool(scheduler_tool)
                     .build();
                 stream_agent!(agent, input, self.history_for_agent(), self.bus)
             }
@@ -372,12 +384,15 @@ mod tests {
             api_key_env: None,
             context_window: None,
             compact_threshold: None,
+            mqtt_host: None,
+            mqtt_port: None,
         }
     }
 
     fn test_core(home: PathBuf) -> Core {
         let bus = Arc::new(Bus::new(16));
-        Core::new(bus, home, test_config())
+        let scheduler = Arc::new(std::sync::Mutex::new(Vec::new()));
+        Core::new(bus, home, test_config(), scheduler)
     }
 
     // ==========================================================

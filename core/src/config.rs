@@ -22,6 +22,12 @@ pub struct Config {
     /// Kompaktifizierungs-Schwelle in Prozent (0 = aus). Default: 80.
     #[serde(default)]
     pub compact_threshold: Option<u64>,
+    /// MQTT-Host. None = MQTT deaktiviert.
+    #[serde(default)]
+    pub mqtt_host: Option<String>,
+    /// MQTT-Port. Default: 1883.
+    #[serde(default)]
+    pub mqtt_port: Option<u16>,
 }
 
 fn default_temperature() -> f64 {
@@ -176,6 +182,8 @@ provider = "anthropic"
             api_key_env: None,
             context_window: None,
             compact_threshold: None,
+            mqtt_host: None,
+            mqtt_port: None,
         };
         assert_eq!(config.api_key_env(), "ANTHROPIC_API_KEY");
     }
@@ -189,6 +197,8 @@ provider = "anthropic"
             api_key_env: Some("MY_CUSTOM_KEY".to_string()),
             context_window: None,
             compact_threshold: None,
+            mqtt_host: None,
+            mqtt_port: None,
         };
         assert_eq!(config.api_key_env(), "MY_CUSTOM_KEY");
     }

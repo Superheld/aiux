@@ -1,320 +1,340 @@
 # AIUX - Architektur
 
-> Was AIUX ist, wie es gebaut ist, welche Entscheidungen dahinter stehen.
+> Koerper-Architektur: Ein System dessen Gehirn ein Sprachmodell ist.
 
 ---
 
-## Leitprinzip: Koerper-Architektur
-
-AIUX ist nach dem Vorbild eines Koerpers gebaut. Nicht als 1:1 Kopie des
-Menschen, sondern als Inspiration fuer ein System dessen Gehirn ein Sprachmodell ist.
+## Ueberblick
 
 ```mermaid
 block-beta
   columns 1
   block:gehirn["Gehirn (aiux-core)"]
     columns 3
-    A["Grosshirn\nCore/LLM"] B["Hippocampus\nMemory"] C["Hirnstamm\nScheduler"]
+    A["Cortex\nGrosshirn/LLM"] B["Hippocampus\nMemory"] C["Brainstem\nReflexe/Sandbox"]
   end
-  Bus["Bus (Nervensystem)\ntokio::broadcast / MQTT"]
+  block:bus["Nervensystem"]
+    columns 2
+    D["tokio::broadcast\n(intern)"] E["MQTT/Mosquitto\n(extern)"]
+  end
   block:nerves["Nerves (Fuehler)"]
     columns 4
-    D["system"] E["log"] F["file"] G["..."]
+    F["file"] G["system"] H["log"] I["..."]
   end
   OS["Betriebssystem / Hardware"]
 
-  gehirn --> Bus
-  Bus --> nerves
+  gehirn --> bus
+  bus --> nerves
   nerves --> OS
 ```
 
-**Grosshirn** = Core. Das LLM denkt, spricht, entscheidet.
-Alles muss als Sprache ankommen.
-
-**Hippocampus** = automatische Gedaechtnisbildung. Hoert auf dem Bus mit,
-speichert wichtige Dinge ohne bewusste Entscheidung. (geplant, Phase C)
-
-**Hirnstamm** = Scheduler. Rhythmen ohne bewusstes Denken:
-Puls, Atem, Tagesrueckblick. (geplant, Phase H)
-
-### Nerves, Tools, Chat
-
-- **Nerves** (Fuehler) = passive Sensoren. Jeder Nerve hat eigenen Filter
-  (verteilter Thalamus), uebersetzt in Text. (geplant, Phase D+G)
-- **Tools** (Haende) = aktive Handlungen. Das Grosshirn entscheidet bewusst
-  etwas zu tun (MemoryTool, spaeter ShellTool, MessageTool).
-- **Chat** ist kein Nerve. Direkter Zugang zum Grosshirn, kein Filter.
-  REPL, spaeter Telegram/Web als Gateways. (Gateway geplant, Phase F)
+| Komponente | Biologisch | Aufgabe |
+|------------|-----------|---------|
+| **Cortex** | Grosshirn | LLM. Denkt, spricht, entscheidet. |
+| **Hippocampus** | Gedaechtnis | Destilliert Wissen in Memory-Dateien. Vom Code gesteuert, nicht vom LLM. |
+| **Brainstem** | Hirnstamm | Sandbox fuer Nerve-Verarbeitung + Heartbeat. Keine eigene Logik. |
+| **Nerves** | Sinnesorgane | Eigene Prozesse, passive Sensoren, kommunizieren ueber MQTT. |
+| **Tools** | Haende | Aktive Handlungen. Cortex entscheidet bewusst. |
+| **Chat** | Gespraech | Direkter Zugang zum Cortex (REPL, spaeter Gateway). Kein Nerve. |
 
 ---
 
-## Aktueller Stand
+## Kommunikation
+
+Zwei Bus-Systeme, verbunden durch die Bridge:
 
 ```mermaid
-graph LR
-  stdin -->|UserInput| REPL
-  REPL -->|Events| Bus
-  Bus -->|Events| Core
-  Core -->|ResponseToken| Bus
-  Bus -->|ResponseToken| REPL
-  REPL --> stdout
-  Core -->|rig-core| LLM[LLM API]
-  Core -->|Tool-Use| Mem[MemoryTool]
+graph TB
+  subgraph core["Core-Prozess"]
+    REPL <-->|"Events (Rust enum)"| BUS["tokio::broadcast"]
+    BUS <--> Cortex
+    BUS <--> Hippocampus
+    BUS <--> Brainstem
+    BUS <--> Bridge["MQTT-Bridge"]
+  end
+  Bridge <-->|JSON| Mosquitto
+  Mosquitto <--> NF["nerve-file"]
+  Mosquitto <--> NS["nerve-system"]
+  Mosquitto <--> NX["nerve-..."]
 ```
 
-Gebaut und lauffaehig: REPL, Core mit Streaming, MemoryTool,
-Conversation-Persistenz, Kompaktifizierung. Kein Daemon, keine Nerves, zwei Agents.
+**Interner Bus** (`tokio::broadcast`): In-process, typsicher, zero-copy. Fuer REPL ↔ Core.
+Ohne externe Dependencies — AIUX laeuft auch ohne MQTT als reiner Chat.
+
+**Externer Bus** (MQTT/Mosquitto): Prozessuebergreifend, sprachunabhaengig. Fuer Nerves.
+Bridge uebersetzt selektiv — der Cortex weiss nicht dass MQTT existiert.
+
+### Events
+
+| Event | Richtung | MQTT |
+|-------|----------|------|
+| `UserInput` | REPL → Core | nein |
+| `ResponseToken` | Core → REPL | nein |
+| `ResponseComplete` | Core → REPL | → `aiux/cortex/response` |
+| `SystemMessage` | Core → REPL | → `aiux/cortex/system` |
+| `ToolCall` | Core → REPL | → `aiux/cortex/toolcall` |
+| `NerveSignal` | Bridge → Core | ← `aiux/nerve/#` |
+| `Compacting` / `Compacted` | Core → REPL | nein |
+| `ClearHistory` | REPL → Core | nein |
+| `Shutdown` | REPL → alle | nein |
+
+### MQTT Topics
+
+```
+aiux/
+├── nerve/                  # Nerves → Bridge (incoming)
+│   ├── register            # Nerve meldet sich an
+│   └── <name>/<event>      # Nerve-spezifische Events
+├── cortex/                 # Bridge → aussen (outgoing)
+│   ├── response            # LLM-Antworten
+│   ├── system              # System-Nachrichten
+│   └── toolcall            # Tool-Aufrufe
+└── brainstem/              # Verarbeitete Ergebnisse (D.2)
+    └── <name>/
+```
+
+### MQTT Message-Schema
+
+Jede Nachricht auf `aiux/nerve/<name>/<event>` **muss** dieses Format haben:
+
+```json
+{
+  "ts": "2026-03-02T14:30:00Z",
+  "source": "nerve/file",
+  "event": "changed",
+  "data": { }
+}
+```
+
+| Feld | Typ | Pflicht | Beschreibung |
+|------|-----|---------|-------------|
+| `ts` | String (ISO 8601) | ja | Zeitstempel des Events |
+| `source` | String | ja | Absender, z.B. `"nerve/file"` |
+| `event` | String | ja | Was passiert ist, z.B. `"changed"` |
+| `data` | Object | nein | Nerve-spezifische Daten (frei) |
+
+Die Bridge validiert Pflichtfelder — fehlende Felder oder kein JSON → Warnung, Message verworfen.
 
 ---
 
 ## Agents
 
-Zwei eigenstaendige rig-Agents, NICHT verschachtelt (kein Sub-Agent per `.tool()`).
-
-| Agent | Datei | Preamble | Tools | History | Ausloeser |
-|-------|-------|----------|-------|---------|-----------|
-| **Cortex** (Grosshirn) | `agent/cortex.rs` | soul + user + shortterm | soul, user, memory | ja, mit Streaming | User-Input via Bus |
-| **Hippocampus** | `agent/hippocampus.rs` | compact-preamble.md | soul, user, memory | nein (leere `vec![]`) | Rust-Code (Schwellwert, /clear, /quit) |
-
-Der Cortex ist der einzige Agent der auf dem Bus lauscht. Der Hippocampus wird
-vom Cortex per Rust-Aufruf gestartet - das LLM entscheidet NICHT selbst
-wann der Hippocampus laeuft, das steuert der Code.
-
-Aufgaben des Hippocampus:
-- **Kompaktifizierung** (`compact_history`): Token-Schwellwert erreicht → Wissen destillieren, History kuerzen
-- **Memory-Flush** (`memory_flush`): Bei /clear und /quit → Wissen sichern ohne History zu kuerzen
-
----
-
-## Event-Bus
-
-Intern `tokio::sync::broadcast`, spaeter extern MQTT fuer Nerves.
-
-| Event | Richtung | Bedeutung |
-|-------|----------|-----------|
-| `UserInput` | REPL → Core | User hat etwas eingegeben |
-| `ResponseToken` | Core → REPL | Ein Token (Streaming) |
-| `ResponseComplete` | Core → REPL | Antwort fertig |
-| `SystemMessage` | Core → REPL | System-Info (Usage, Fehler) |
-| `Compacting` / `Compacted` | Core → REPL | Kompaktifizierung laeuft/fertig |
-| `ClearHistory` | REPL → Core | History loeschen (/clear) |
-| `Shutdown` | REPL → alle | Herunterfahren (/quit) |
-
 ```mermaid
-sequenceDiagram
-  participant User
-  participant REPL
-  participant Bus
-  participant Core
-  participant LLM
-
-  User->>REPL: Eingabe
-  REPL->>Bus: UserInput
-  Bus->>Core: UserInput
-  Bus->>REPL: UserInput (Label drucken)
-  Core->>LLM: stream_chat()
-  loop Streaming
-    LLM-->>Core: Token
-    Core->>Bus: ResponseToken
-    Bus->>REPL: ResponseToken
-    REPL->>User: Token ausgeben
+flowchart LR
+  subgraph Cortex
+    direction TB
+    C1[soul + user + shortterm] --> C2[rig-Agent]
+    C2 --> C3[Streaming + Tools]
   end
-  Core->>Bus: ResponseComplete
+  subgraph Hippocampus
+    direction TB
+    H1[compact-preamble.md] --> H2[rig-Agent]
+    H2 --> H3[Memory-Flush]
+  end
+  Bus -->|UserInput| Cortex
+  Cortex -->|"Rust-Call\n(kein LLM-Entscheid)"| Hippocampus
 ```
 
-Regeln:
-- Jedes Modul hoert nur auf relevante Events, Rest ignorieren.
-- Publisher wissen nicht wer zuhoert (lose Kopplung).
-- Kein Request-Response. Events sind fire-and-forget.
+| Agent | Tools | History | Ausloeser |
+|-------|-------|---------|-----------|
+| **Cortex** | soul, user, memory | ja, Streaming | UserInput via Bus |
+| **Hippocampus** | soul, user, memory | nein | Schwellwert, /clear, /quit |
 
----
+### Agent-Factory
 
-## Agent-Factory
-
-rig-core Provider erzeugen verschiedene Rust-Typen. Die Factory kapselt das:
+Provider-Typ wird intern aufgeloest — nach aussen nur Events:
 
 ```mermaid
 flowchart LR
-  Config[".system/config.toml\nprovider, model, ..."] --> Factory
-  Factory -->|"match provider"| A[anthropic::Client]
-  Factory -->|"match provider"| B[mistral::Client]
-  Factory -->|"match provider"| C[ollama::Client]
-  A --> Agent["Agent + Preamble + Tools\n(identischer Code)"]
-  B --> Agent
-  C --> Agent
-  Agent --> Bus["Bus\n(Typ ist weg)"]
-```
-
-Ab `client.agent(model)` ist der Code bei allen Providern identisch.
-Der Agent-Typ lebt nur innerhalb seines Tasks, nach aussen gibt es nur Events.
-
-### Config
-
-Flaches Format in `home/.system/config.toml`. API-Keys aus `.env`.
-
-```toml
-provider = "anthropic"
-model = "claude-sonnet-4-5-20250929"
-temperature = 0.7
-# api_key_env = "ANTHROPIC_API_KEY"  # Default pro Provider
-# context_window = 200000            # Override fuer Ollama etc.
-# compact_threshold = 80             # Kompaktifizierung bei X%
+  Config[".system/config.toml"] --> Factory
+  Factory -->|anthropic| A[Client]
+  Factory -->|mistral| B[Client]
+  Factory -->|ollama| C[Client]
+  A & B & C --> Agent["Agent + Preamble + Tools"]
+  Agent --> Bus
 ```
 
 ---
 
-## Boot-Sequence
+## Memory
 
 ```mermaid
 flowchart TD
-  A[soul.md] --> P[Preamble]
-  B[user.md] --> P
-  C[shortterm.md] --> P
-  P --> Core
-  H["conversations/\nconversation-YYYY-MM-DD.json"] --> Core
-  Config[".system/config.toml"] --> Core
+  subgraph Preamble["Preamble (bei jedem LLM-Call)"]
+    soul.md --> P[" "]
+    user.md --> P
+    shortterm.md --> P
+  end
+  P --> Cortex
+  Conv["conversations/\nYYYY-MM-DD.json"] --> Cortex
+  Config[".system/config.toml"] --> Cortex
 ```
-
-Spaetere Erweiterungen: skills/*.md, environment.md.
-
----
-
-## Memory-Modell
 
 | Typ | Format | Lebensdauer |
 |-----|--------|-------------|
-| **Kurzzeit** | shortterm.md | Permanent, vom Agent verwaltet (MemoryTool) |
-| **Konversation** | conversations/conversation-YYYY-MM-DD.json | Pro Tag |
+| **Kurzzeit** | shortterm.md | Permanent, Agent verwaltet (MemoryTool) |
+| **Konversation** | conversation-YYYY-MM-DD.json | Pro Tag |
 | **Langzeit** | SQLite + RAG (geplant) | Permanent, durchsuchbar |
 
-**Kompaktifizierung:** Bei hoher Token-Nutzung (`compact_threshold`) wird die
-History automatisch zusammengefasst. `[KOMPAKTIFIZIERUNG]`-Marker in der History,
-Agent sieht nur ab dem letzten Marker.
+Kompaktifizierung bei `compact_threshold`: History zusammenfassen,
+Wissen destillieren, `[KOMPAKTIFIZIERUNG]`-Marker setzen.
 
 ---
 
-## Rollen (Zielbild, Phase E)
+## Nerve-System
 
-Parallele Agent-Instanzen mit eigener Config, eigenem Memory, eigenen Nerves.
-`main` ist der Boss, andere Rollen werden von `main` gesteuert.
+Ein Nerve = eigenstaendiger Prozess der sich beim Start selbst registriert.
 
-Was immer gleich bleibt: **soul.md** (Identitaet) und **user.md** (Mensch).
-Preamble pro Rolle: `soul + user + role + role-memory + role-context`.
+### Self-Registration
+
+Jeder Nerve schickt beim Start eine Register-Message auf `aiux/nerve/register`:
+
+```json
+{
+    "ts": "2026-03-03T14:00:00Z",
+    "source": "nerve/system",
+    "event": "register",
+    "data": {
+        "name": "system-monitor",
+        "version": "0.1.0",
+        "description": "Ueberwacht CPU, RAM, Disk, Temperatur",
+        "channels": [
+            "aiux/nerve/system/stats",
+            "aiux/nerve/system/alert"
+        ],
+        "home": "nerves/system-monitor"
+    }
+}
+```
+
+| Feld | Pflicht | Beschreibung |
+|------|---------|-------------|
+| `name` | ja | Eindeutiger Name des Nerve |
+| `version` | ja | Versionsnummer |
+| `description` | ja | Was der Nerve tut (Text fuer den Cortex) |
+| `channels` | ja | MQTT-Topics die dieser Nerve publishen wird |
+| `home` | nein | Pfad zum Nerve-Verzeichnis (relativ zu aiux home, fuer interpret.rhai) |
+
+Der Brainstem empfaengt die Registrierung und traegt den Nerve in die Registry ein.
+Danach verarbeitet er Events dieses Nerve wie gewohnt (interpret.rhai, Weiterleitung).
+
+Der Brainstem startet Nerves automatisch: Er scannt `home/nerves/*/manifest.toml`
+beim Boot, findet das `binary`-Feld und startet den Prozess. Der Nerve registriert
+sich dann selbst per MQTT. Bei Shutdown beendet der Brainstem alle Child-Prozesse.
+
+### Nerve-Verzeichnis
+
+```
+nerves/system-monitor/
+├── manifest.toml       # Pflicht: binary = "nerve-system"
+└── interpret.rhai      # Verarbeitungslogik fuer den Brainstem (optional)
+```
+
+`manifest.toml` ist minimal — nur das `binary`-Feld zum Starten.
+Alles andere (Name, Channels, Description) kommt per Self-Registration.
+
+### Lebenszyklus
+
+```mermaid
+sequenceDiagram
+    participant N as Nerve
+    participant M as MQTT
+    participant B as Brainstem
+
+    N->>M: aiux/nerve/register (name, channels, ...)
+    M->>B: NerveSignal (event=register)
+    B->>B: Registry-Eintrag anlegen
+    loop Betrieb
+        N->>M: aiux/nerve/<name>/<event>
+        M->>B: NerveSignal
+        B->>B: interpret.rhai ausfuehren
+    end
+    Note over B: Heartbeat prueft periodisch ob N noch lebt
+```
+
+---
+
+## Brainstem
+
+Sandbox im Core-Prozess. Keine eigene Logik — fuehrt aus was Nerves mitliefern.
+
+```mermaid
+flowchart LR
+  MQTT["Nerve-Event\n(MQTT)"] --> BS["Brainstem"]
+  BS -->|"sucht"| I["interpret.rhai\ndes Nerve"]
+  I --> R["rhai-Sandbox"]
+  R -->|"Weiterleitungsregeln\ndes Nerve"| Out["MQTT / Cortex"]
+```
+
+| Aufgabe | Beschreibung |
+|---------|-------------|
+| Nerve-Start | `home/nerves/*/manifest.toml` scannen, Binaries starten |
+| Registration | `aiux/nerve/register` empfangen, Registry-Eintrag anlegen |
+| Verarbeitung | interpret.rhai aus Nerve-Verzeichnis ausfuehren |
+| Registry | Welche Nerves aktiv, welche Channels |
+| Heartbeat | Watchdog, Rhythmen (Puls/Atem), Reminder |
+| Shutdown | Alle Child-Prozesse sauber beenden |
 
 ---
 
 ## Verzeichnisstruktur
 
-### Repo
-
 ```
 aiux/
 ├── core/src/
 │   ├── main.rs              # Verdrahtung
-│   ├── config.rs            # Config laden
-│   ├── history.rs           # Conversation-Persistenz, Kompaktifizierungs-Schwellwert
+│   ├── config.rs            # Config aus .system/config.toml
+│   ├── history.rs           # Conversation-Persistenz
 │   ├── home.rs              # home/-Verzeichnis finden
 │   ├── repl.rs              # Kommandozeile
-│   ├── agent/
-│   │   ├── mod.rs           # Modul-Einstiegspunkt (re-exports)
-│   │   ├── cortex.rs        # Cortex-Agent (Grosshirn)
-│   │   └── hippocampus.rs   # Hippocampus-Agent (Gedaechtnis)
-│   ├── bus/
-│   │   ├── mod.rs           # Event-Bus (broadcast)
-│   │   └── events.rs        # Event-Typen
-│   └── tools/
-│       ├── mod.rs           # Tool-Registry
-│       ├── soul.rs          # SoulTool
-│       ├── user.rs          # UserTool
-│       └── memory.rs        # MemoryTool
-├── nerve/                   # Platzhalter
+│   ├── mqtt.rs              # MQTT-Bridge
+│   ├── agent/{cortex,hippocampus}.rs
+│   ├── bus/{mod,events}.rs
+│   └── tools/{soul,user,memory}.rs
+├── nerve/                   # Nerve-Binaries
+│   ├── shared/              # Gemeinsamer Code (MQTT, Registration)
+│   └── system/              # nerve-system Binary
 ├── home/
-│   ├── .system/
-│   │   ├── config.toml
-│   │   └── compact-preamble.md
-│   ├── memory/
-│   │   ├── soul.md
-│   │   ├── user.md
-│   │   ├── shortterm.md
-│   │   └── conversations/  # .gitignore
+│   ├── .system/             # Config + System-Prompts
+│   ├── memory/              # soul.md, user.md, shortterm.md, conversations/
+│   ├── nerves/              # Nerve-Verzeichnisse
 │   ├── skills/              # Platzhalter
 │   └── tools/               # Platzhalter
 └── docs/
 ```
 
-### Zielsystem
-
-```
-/home/claude/
-├── .system/config.toml
-├── memory/{soul.md, user.md, shortterm.md, conversations/}
-├── skills/
-└── tools/
-```
+Zielsystem (Raspi): `/home/claude/` mit gleicher Struktur.
 
 ---
 
 ## Tech-Stack
 
-### Eingebaut
-
 | Crate | Zweck |
 |-------|-------|
-| **rig-core** | LLM Framework (Multi-Provider, Streaming, Tool-Use) |
+| **rig-core** | LLM (Multi-Provider, Streaming, Tool-Use) |
 | **tokio** | Async Runtime |
-| **serde** + **serde_json** | Serialisierung |
+| **rumqttc** | MQTT Client |
+| **serde** / **serde_json** | Serialisierung |
 | **schemars** | JSON Schema (Tool-Definitionen) |
 | **chrono** | Datum (History-Rotation) |
-| **thiserror** | Error-Typen |
-| **anyhow** | Error-Handling |
+| **thiserror** / **anyhow** | Error-Handling |
 | **futures** | Stream-Verarbeitung |
 | **dotenvy** | .env laden |
 | **toml** | Config parsen |
+| **rhai** | Brainstem-Sandbox (interpret.rhai) |
+| **cron** | Cron-Ausdruecke (Scheduler/Heartbeat) |
+| **notify** | Filesystem-Watcher (nerve-file) |
 
-### Geplant
-
-| Crate | Zweck | Phase |
-|-------|-------|-------|
-| **rig-sqlite** | Vector Store + RAG | Fernziel |
-| **rumqttc** | MQTT Client (externer Bus) | D |
-| **tokio-cron-scheduler** | Scheduler-Rhythmen | H |
-| **tract-onnx** | Lokale Inference | Fernziel |
+Geplant:
+**rig-sqlite** (RAG), **tract-onnx** (lokale Inference).
 
 ---
 
-## Design Patterns
+## Offene Fragen
 
-| Metapher | Komponente | Pattern |
-|----------|-----------|---------|
-| Grosshirn | Core/LLM | - |
-| Hippocampus | Memory (Hintergrund) | Observer |
-| Hirnstamm | Scheduler | Scheduled Jobs |
-| Fuehler | Nerves | Observer + Strategy |
-| Nervensystem | Bus | Pub/Sub + Mediator |
-| Haende | Tools | Command |
-| Seele | soul.md | Config as Identity |
-| Gespraech | Chat/Gateway | - |
-
-Eingebaute Patterns:
-- **Factory** - Agent-Erstellung anhand Config (Provider-Typ bleibt intern)
-- **Repository** - MemoryTool abstrahiert Speicherzugriff
-- **Composite** - Preamble aus Teilen zusammengebaut (soul + user + shortterm)
-- **Command** - Tool-Calls als serialisierte Command-Objekte
-
----
-
-## Plattformen
-
-Primaer Raspberry Pi 4 (aarch64), laeuft auf jedem Linux, macOS, Windows.
-Alle Dependencies sind Pure Rust.
-
-```bash
-# Raspi (Cross-Compilation)
-cargo build --release --target aarch64-unknown-linux-musl
-
-# Lokal
-cargo build --release
-```
+- Brainstem-LLM: Welches kleine Modell, wie angebunden?
+- Dynamische Tools: Nerves liefern dem Cortex Tools (rig-core `ToolDyn`)?
+- Heartbeat-Details: Intervalle, Watchdog-Timeouts
 
 ---
 

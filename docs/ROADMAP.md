@@ -81,24 +81,61 @@ destilliert Wissen automatisch in die passenden Dateien.
 
 ---
 
-## Phase D: Erster Nerve
+## Phase D: Nervensystem ✓
 
-> Den ersten Fuehler zur Umwelt anschliessen.
+> MQTT, Brainstem, Nerves. Das System bekommt Sinne.
 
-`nerve-file` als einfachster Nerve: Beobachtet Dateiaenderungen
-in home/ und meldet sie auf den Bus. Damit greift auch der
-Preamble-Reload automatisch.
+### D.1: MQTT-Grundlagen ✓
 
-- [ ] nerve-file: inotify/notify auf home/memory/ und home/config.toml
-- [ ] Event-Typ: FileChanged { path, change_type }
-- [ ] Core reagiert auf Config-Aenderung: Agent neu bauen
-- [ ] Core reagiert auf Preamble-Aenderung: Preamble neu laden
-- [ ] MQTT-Bridge: interner Bus <-> Mosquitto (fuer externe Nerves)
-- [ ] Unit-Tests fuer Phase D
+- [x] Mosquitto lokal einrichten (Entwicklung)
+- [x] MQTT-Bridge im Core: rumqttc Client, subscribe auf `aiux/nerve/#`
+- [x] Bridge als optionaler Task in main.rs (nur wenn mqtt_host konfiguriert)
+- [x] Config erweitern: mqtt_host, mqtt_port (optional)
+- [x] NerveSignal Event-Typ im internen Bus
+- [x] Bus-to-MQTT: ResponseComplete, SystemMessage, ToolCall nach aiux/cortex/*
+- [x] Tests (5 Tests)
+
+### D.2: Brainstem ✓
+
+- [x] MQTT Message-Schema definieren: Pflichtfelder, Validierung
+- [x] Brainstem-Modul: Registry, Self-Registration, interpret-Ausfuehrung
+- [x] rhai-Engine einbetten (sandboxed, parse_json Hilfsfunktion)
+- [x] Heartbeat: Scheduler mit Cron-Jobs und Einmal-Timern
+- [x] SchedulerTool: Cortex kann Reminder setzen (set, cron, cancel, list)
+- [x] Tests (38 Tests)
+
+### D.3: nerve-system ✓
+
+- [x] Self-Registration: Nerves melden sich per MQTT beim Brainstem an
+- [x] Registration-Schema standardisiert (name, version, description, channels, home)
+- [x] nerve/shared: Gemeinsamer Code (MQTT, Registration)
+- [x] nerve/system: System-Monitor (CPU, RAM, Disk, Temperatur)
+- [x] interpret.rhai: Schwellwert-Filterung (CPU >80%, RAM >90%, Temp >70°C)
+- [x] Nerve-Launcher: Brainstem startet Binaries aus manifest.toml beim Boot
+- [x] Shutdown: Brainstem beendet alle Child-Prozesse sauber
+- [x] Tests (3 Tests nerve-shared, 1 Test nerve-system, 6 Launcher-Tests)
+
+**Gesamt nach Phase D: 125 Tests (core) + 3 (nerve-shared) + 1 (nerve-system) = 129**
 
 ---
 
-## Phase E: Rollen
+## Phase E: Haende (Shell-Tool)
+
+> Der Agent bekommt Zugriff auf sein System. Unboxed.
+
+Der Cortex braucht ein ShellTool um Befehle ausfuehren zu koennen.
+Damit kann er seinen Koerper kennenlernen, pflegen und Probleme selbst loesen
+(z.B. Mosquitto starten, Logs lesen, Pakete installieren).
+
+- [ ] ShellTool: Cortex kann Shell-Befehle ausfuehren
+- [ ] Sicherheit: Welche Befehle erlaubt? Whitelist, Sandbox, oder komplett offen?
+- [ ] Ausgabe als Text an den Cortex zurueck
+- [ ] Timeout fuer lang laufende Befehle
+- [ ] Tests fuer ShellTool
+
+---
+
+## Phase F: Rollen
 
 > Parallele Agent-Instanzen mit eigener Config und eigenem Memory.
 
@@ -109,11 +146,11 @@ Preamble-Reload automatisch.
 - [ ] REPL: /role zum Wechseln, /roles zum Auflisten
 - [ ] Prompt zeigt aktive Rolle: main>, assistent>, etc.
 - [ ] Kommunikation zwischen Rollen ueber Bus
-- [ ] Unit-Tests fuer Phase E
+- [ ] Tests
 
 ---
 
-## Phase F: Chat-Gateway
+## Phase G: Chat-Gateway
 
 > Den direkten Zugang zum Grosshirn ueber richtige Kanaele.
 
@@ -124,34 +161,19 @@ ersetzt die REPL fuer externe Kommunikation.
 - [ ] Telegram-Gateway (erstes echtes Gateway)
 - [ ] Mehrzeilen-Input, Anhaenge (Bilder -> als Pfad/Beschreibung)
 - [ ] MessageTool: Agent kann aktiv Nachrichten senden
-- [ ] Unit-Tests fuer Phase F
+- [ ] Tests
 
 ---
 
-## Phase G: Weitere Nerves
+## Phase H: Weitere Nerves
 
 > Das System spueren und die Umwelt wahrnehmen.
 
-Jeder Nerve hat eigene Vorverarbeitung (verteilter Thalamus).
-Alles kommt als Text beim Core an.
-
-- [ ] nerve-system: CPU, RAM, Disk, Temperatur
 - [ ] nerve-log: Syslog beobachten, Anomalien erkennen
 - [ ] nerve-net: Netzwerk-Status, Erreichbarkeit
-- [ ] Nerves mit lokalem Modell fuer Vorverarbeitung (Ollama)
-- [ ] Unit-Tests fuer Phase G
-
----
-
-## Phase H: Hirnstamm (Scheduler)
-
-> Rhythmen die ohne bewusstes Denken laufen.
-
-- [ ] Puls (5 Min): Bin ich okay? Kurzer Selbst-Check
-- [ ] Atem (1h): Was ist gerade los? Zusammenfassung
-- [ ] Tagesrueckblick: Was habe ich heute gelernt?
-- [ ] Events auf den Bus, Core entscheidet ob Aktion noetig
-- [ ] Unit-Tests fuer Phase H
+- [ ] nerve-file: Dateiaenderungen beobachten (notify/inotify)
+- [ ] Brainstem-LLM: kleines Modell fuer sprachliche Interpretation
+- [ ] Tests
 
 ---
 
@@ -161,7 +183,6 @@ Kein Zeitplan, keine Reihenfolge. Ideen fuer spaeter:
 
 - Langzeit-Memory: SQLite + RAG (rig-sqlite, semantische Suche)
 - Skills als Markdown (Expertise die geladen wird)
-- Shell-Tool (Agent kann Befehle ausfuehren)
 - Lokale Inference auf Raspi (tract/ONNX)
 - Vision-Nerve (Kamera + lokales Vision-Modell)
 - Audio-Nerve (Mikrofon + Speech-to-Text)
@@ -177,12 +198,15 @@ Frueher offen, jetzt beantwortet:
 | Frage | Antwort |
 |-------|---------|
 | Memory am Bus oder im Core? | Hippocampus hoert auf dem Bus mit (Phase C). MemoryTool bleibt im Core. |
-| Wie werden Nerves angebunden? | Eigene Prozesse, MQTT nach aussen, eigene Vorverarbeitung. |
-| Scheduler: eigenes Modul? | Ja, Hirnstamm. Eigenes Modul, Events auf den Bus. |
-| Chat = Nerve? | Nein. Chat ist direkter Zugang zum Grosshirn. Gateway, kein Nerve. |
-| Filter/Thalamus zentral? | Nein. Verteilt, jeder Nerve filtert selbst. |
+| Wie werden Nerves angebunden? | Eigene Prozesse, MQTT nach aussen. Self-Registration beim Start. |
+| Brainstem = Scheduler? | Brainstem = Sandbox + Heartbeat + Nerve-Launcher. |
+| Nerve-Discovery? | Self-Registration per MQTT. Brainstem startet Binaries aus manifest.toml. |
+| Chat = Nerve? | Nein. Chat ist direkter Zugang zum Cortex. Gateway, kein Nerve. |
+| Cortex bekommt Nerve-Events? | Nicht automatisch. interpret.rhai entscheidet ob/was weitergeleitet wird. |
+| Nerve-Format? | Verzeichnis unter nerves/ mit manifest.toml (binary) + interpret.rhai (optional). Alles andere per Self-Registration. |
+| Scriptsprache? | rhai (sandboxed, eingebettet, fertig). Keine eigene Scriptsprache. |
 | Config wo? | System-Config in home/.system/config.toml. Rollen-Config spaeter in roles/<name>/config.toml. |
 
 ---
 
-*Letzte Aktualisierung: 2026-03-02*
+*Letzte Aktualisierung: 2026-03-03 (Phase D abgeschlossen, Phase E definiert)*

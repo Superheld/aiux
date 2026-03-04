@@ -6,6 +6,7 @@
 // - MemoryTool: Kurzzeitgedaechtnis (shortterm.md)
 
 pub mod memory;
+pub mod scheduler;
 pub mod soul;
 pub mod user;
 
