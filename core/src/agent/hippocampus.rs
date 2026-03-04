@@ -42,11 +42,14 @@ pub async fn hippocampus_call(
     let user_tool = UserTool::new(home, Arc::clone(preamble_dirty));
     let memory_tool = MemoryTool::new(home, Arc::clone(preamble_dirty));
 
-    match config.provider.as_str() {
+    let provider = config.hippocampus_provider();
+    let model = config.hippocampus_model();
+
+    match provider {
         "anthropic" => {
             let client = anthropic::Client::from_env();
             let agent = client
-                .agent(&config.model)
+                .agent(model)
                 .preamble(&preamble)
                 .temperature(0.3)
                 .tool(soul_tool)
@@ -58,7 +61,7 @@ pub async fn hippocampus_call(
         "mistral" => {
             let client = mistral::Client::from_env();
             let agent = client
-                .agent(&config.model)
+                .agent(model)
                 .preamble(&preamble)
                 .temperature(0.3)
                 .tool(soul_tool)
@@ -71,7 +74,7 @@ pub async fn hippocampus_call(
             let client: ollama::Client = ollama::Client::new(rig::client::Nothing)
                 .map_err(|e| anyhow::anyhow!("Ollama-Client: {}", e))?;
             let agent = client
-                .agent(&config.model)
+                .agent(model)
                 .preamble(&preamble)
                 .temperature(0.3)
                 .tool(soul_tool)
@@ -80,6 +83,6 @@ pub async fn hippocampus_call(
                 .build();
             Ok(agent.chat(prompt, vec![]).await?)
         }
-        other => anyhow::bail!("Unbekannter Provider: '{}'", other),
+        other => anyhow::bail!("Unbekannter Provider fuer Hippocampus: '{}'", other),
     }
 }

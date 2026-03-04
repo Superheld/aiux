@@ -28,6 +28,12 @@ pub struct Config {
     /// MQTT-Port. Default: 1883.
     #[serde(default)]
     pub mqtt_port: Option<u16>,
+    /// Hippocampus-Provider. None = gleicher Provider wie Cortex.
+    #[serde(default)]
+    pub hippocampus_provider: Option<String>,
+    /// Hippocampus-Model. None = gleiches Model wie Cortex.
+    #[serde(default)]
+    pub hippocampus_model: Option<String>,
 }
 
 fn default_temperature() -> f64 {
@@ -35,6 +41,16 @@ fn default_temperature() -> f64 {
 }
 
 impl Config {
+    /// Provider fuer den Hippocampus (Fallback auf Cortex-Provider).
+    pub fn hippocampus_provider(&self) -> &str {
+        self.hippocampus_provider.as_deref().unwrap_or(&self.provider)
+    }
+
+    /// Model fuer den Hippocampus (Fallback auf Cortex-Model).
+    pub fn hippocampus_model(&self) -> &str {
+        self.hippocampus_model.as_deref().unwrap_or(&self.model)
+    }
+
     /// Gibt den Namen der Env-Variable fuer den API-Key zurueck.
     /// Entweder explizit konfiguriert oder der Default pro Provider.
     pub fn api_key_env(&self) -> &str {
@@ -184,6 +200,8 @@ provider = "anthropic"
             compact_threshold: None,
             mqtt_host: None,
             mqtt_port: None,
+            hippocampus_provider: None,
+            hippocampus_model: None,
         };
         assert_eq!(config.api_key_env(), "ANTHROPIC_API_KEY");
     }
@@ -199,7 +217,67 @@ provider = "anthropic"
             compact_threshold: None,
             mqtt_host: None,
             mqtt_port: None,
+            hippocampus_provider: None,
+            hippocampus_model: None,
         };
         assert_eq!(config.api_key_env(), "MY_CUSTOM_KEY");
+    }
+
+    // ==========================================================
+    // hippocampus_provider() / hippocampus_model()
+    // ==========================================================
+
+    #[test]
+    fn hippocampus_fallback_auf_cortex() {
+        let config = Config {
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet".to_string(),
+            temperature: 0.7,
+            api_key_env: None,
+            context_window: None,
+            compact_threshold: None,
+            mqtt_host: None,
+            mqtt_port: None,
+            hippocampus_provider: None,
+            hippocampus_model: None,
+        };
+        assert_eq!(config.hippocampus_provider(), "anthropic");
+        assert_eq!(config.hippocampus_model(), "claude-sonnet");
+    }
+
+    #[test]
+    fn hippocampus_eigenes_model() {
+        let config = Config {
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet".to_string(),
+            temperature: 0.7,
+            api_key_env: None,
+            context_window: None,
+            compact_threshold: None,
+            mqtt_host: None,
+            mqtt_port: None,
+            hippocampus_provider: Some("ollama".to_string()),
+            hippocampus_model: Some("llama3".to_string()),
+        };
+        assert_eq!(config.hippocampus_provider(), "ollama");
+        assert_eq!(config.hippocampus_model(), "llama3");
+    }
+
+    #[test]
+    fn hippocampus_nur_model_override() {
+        let config = Config {
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet".to_string(),
+            temperature: 0.7,
+            api_key_env: None,
+            context_window: None,
+            compact_threshold: None,
+            mqtt_host: None,
+            mqtt_port: None,
+            hippocampus_provider: None,
+            hippocampus_model: Some("claude-haiku".to_string()),
+        };
+        assert_eq!(config.hippocampus_provider(), "anthropic");
+        assert_eq!(config.hippocampus_model(), "claude-haiku");
     }
 }

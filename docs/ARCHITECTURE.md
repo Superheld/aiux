@@ -135,10 +135,10 @@ flowchart LR
   Cortex -->|"Rust-Call\n(kein LLM-Entscheid)"| Hippocampus
 ```
 
-| Agent | Tools | History | Ausloeser |
-|-------|-------|---------|-----------|
-| **Cortex** | soul, user, memory, scheduler, shell | ja, Streaming | UserInput via Bus |
-| **Hippocampus** | soul, user, memory | nein | Schwellwert, /clear, /quit |
+| Agent | Model | Tools | History | Ausloeser |
+|-------|-------|-------|---------|-----------|
+| **Cortex** | `model` (config.toml) | soul, user, memory, scheduler, shell | ja, Streaming | UserInput via Bus |
+| **Hippocampus** | `hippocampus_model` (Fallback: Cortex) | soul, user, memory | nein | Schwellwert, /clear, /quit |
 
 ### Agent-Factory
 

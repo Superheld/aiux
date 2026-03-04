@@ -95,9 +95,14 @@ pub struct Core {
 
 /// Boot-Info fuer die Anzeige beim Start.
 pub struct BootInfo {
+    pub provider: String,
+    pub model: String,
+    pub hippocampus_provider: Option<String>,
+    pub hippocampus_model: Option<String>,
     pub has_soul: bool,
     pub has_user: bool,
     pub has_notes: bool,
+    pub mqtt_active: bool,
     pub history_count: usize,
 }
 
@@ -122,9 +127,14 @@ impl Core {
     /// Info ueber den Boot-Zustand (fuer Anzeige).
     pub fn boot_info(&self) -> BootInfo {
         BootInfo {
+            provider: self.config.provider.clone(),
+            model: self.config.model.clone(),
+            hippocampus_provider: self.config.hippocampus_provider.clone(),
+            hippocampus_model: self.config.hippocampus_model.clone(),
             has_soul: self.home.join("memory/soul.md").exists(),
             has_user: self.home.join("memory/user.md").exists(),
             has_notes: self.home.join("memory/notes.md").exists(),
+            mqtt_active: self.config.mqtt_host.is_some(),
             history_count: self.history.len(),
         }
     }
@@ -386,6 +396,8 @@ mod tests {
             compact_threshold: None,
             mqtt_host: None,
             mqtt_port: None,
+            hippocampus_provider: None,
+            hippocampus_model: None,
         }
     }
 
@@ -513,6 +525,9 @@ mod tests {
         assert!(!info.has_soul);
         assert!(!info.has_user);
         assert!(!info.has_notes);
+        assert!(!info.mqtt_active);
+        assert_eq!(info.provider, "anthropic");
+        assert!(info.hippocampus_model.is_none());
         assert_eq!(info.history_count, 0);
     }
 }

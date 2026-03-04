@@ -5,6 +5,12 @@ temperature = 0.7
 # context_window = 200000  # Override, z.B. fuer Ollama-Modelle
 # compact_threshold = 80  # Kompaktifizierung bei X% Context-Window (0 = aus)
 
+# --- Hippocampus (Memory-Agent) ---
+# Eigenes Model fuer Kompaktifizierung/Memory-Flush.
+# Wenn nicht gesetzt, wird das Cortex-Model verwendet.
+# hippocampus_provider = "anthropic"
+# hippocampus_model = "claude-haiku-4-5-20251001"
+
 # --- MQTT (Nervensystem) ---
 # mqtt_host = "localhost"  # Aktiviert MQTT-Bridge (ohne = deaktiviert)
 # mqtt_port = 1883         # Default: 1883
