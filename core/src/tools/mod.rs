@@ -7,6 +7,7 @@
 
 pub mod memory;
 pub mod scheduler;
+pub mod shell;
 pub mod soul;
 pub mod user;
 

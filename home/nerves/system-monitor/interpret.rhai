@@ -21,7 +21,7 @@ if d.temp_celsius != () && d.temp_celsius > temp_warn {
 
 if warnings.len() > 0 {
     let text = `[nerve/system] Warnung: ${warnings}`;
-    #{ forward: true, target: "cortex", text: text }
+    #{ forward: true, target: "neocortex", text: text }
 } else {
     #{ forward: false }
 }

@@ -1,6 +1,6 @@
 // SchedulerTool: Timer und Cron-Jobs setzen, listen, loeschen.
 //
-// Der Cortex nutzt dieses Tool um zeitgesteuerte Events zu planen.
+// Der Neocortex nutzt dieses Tool um zeitgesteuerte Events zu planen.
 // Die Eintraege werden im SharedScheduler gespeichert, den der
 // Brainstem in seiner run()-Loop prueft und bei Faelligkeit feuert.
 

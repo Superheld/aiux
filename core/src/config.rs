@@ -1,13 +1,13 @@
 // Config: Agent-Konfiguration aus TOML laden.
 //
-// Strukturiert mit TOML Tables: [cortex], [hippocampus], [mqtt].
+// Strukturiert mit TOML Tables: [neocortex], [hippocampus], [mqtt], [shell].
 // Liegt in home/.system/config.toml.
 
 use std::path::Path;
 
 use serde::Deserialize;
 
-/// Konfiguration fuer einen einzelnen Agent (Cortex oder Hippocampus).
+/// Konfiguration fuer einen einzelnen Agent (Neocortex oder Hippocampus).
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentConfig {
     pub provider: String,
@@ -35,11 +35,13 @@ pub struct MqttConfig {
 /// Gesamtkonfiguration mit TOML Tables.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    pub cortex: AgentConfig,
-    /// Hippocampus-Config. Optional — Fallback auf Cortex-Werte.
+    pub neocortex: AgentConfig,
+    /// Hippocampus-Config. Optional — Fallback auf Neocortex-Werte.
     pub hippocampus: Option<AgentConfig>,
     /// MQTT-Config. Optional — wenn nicht vorhanden: MQTT deaktiviert.
     pub mqtt: Option<MqttConfig>,
+    /// Shell-Config. Optional — ohne = ShellTool deaktiviert.
+    pub shell: Option<ShellConfig>,
 }
 
 fn default_temperature() -> f64 {
@@ -50,30 +52,42 @@ fn default_mqtt_port() -> u16 {
     1883
 }
 
+fn default_shell_timeout() -> u64 {
+    30
+}
+
+/// Shell-Konfiguration (Tool). Eigene Section weil Shell kein Agent ist.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ShellConfig {
+    pub whitelist: Vec<String>,
+    #[serde(default = "default_shell_timeout")]
+    pub timeout: u64,
+}
+
 impl Config {
-    /// Provider fuer den Hippocampus (Fallback auf Cortex-Provider).
+    /// Provider fuer den Hippocampus (Fallback auf Neocortex-Provider).
     pub fn hippocampus_provider(&self) -> &str {
         self.hippocampus
             .as_ref()
             .map(|h| h.provider.as_str())
-            .unwrap_or(&self.cortex.provider)
+            .unwrap_or(&self.neocortex.provider)
     }
 
-    /// Model fuer den Hippocampus (Fallback auf Cortex-Model).
+    /// Model fuer den Hippocampus (Fallback auf Neocortex-Model).
     pub fn hippocampus_model(&self) -> &str {
         self.hippocampus
             .as_ref()
             .map(|h| h.model.as_str())
-            .unwrap_or(&self.cortex.model)
+            .unwrap_or(&self.neocortex.model)
     }
 
     /// Gibt den Namen der Env-Variable fuer den API-Key zurueck.
     /// Entweder explizit konfiguriert oder der Default pro Provider.
     pub fn api_key_env(&self) -> &str {
-        if let Some(ref env) = self.cortex.api_key_env {
+        if let Some(ref env) = self.neocortex.api_key_env {
             return env;
         }
-        match self.cortex.provider.as_str() {
+        match self.neocortex.provider.as_str() {
             "anthropic" => "ANTHROPIC_API_KEY",
             "mistral" => "MISTRAL_API_KEY",
             "ollama" => "", // Ollama braucht keinen API-Key
@@ -113,56 +127,57 @@ mod tests {
     // ==========================================================
 
     #[test]
-    fn config_laden_nur_cortex() {
+    fn config_laden_nur_neocortex() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
-[cortex]
+[neocortex]
 provider = "anthropic"
 model = "claude-sonnet-4-5-20250929"
 temperature = 0.5
 "#).unwrap();
 
         let config = Config::load(&home).unwrap();
-        assert_eq!(config.cortex.provider, "anthropic");
-        assert_eq!(config.cortex.model, "claude-sonnet-4-5-20250929");
-        assert_eq!(config.cortex.temperature, 0.5);
+        assert_eq!(config.neocortex.provider, "anthropic");
+        assert_eq!(config.neocortex.model, "claude-sonnet-4-5-20250929");
+        assert_eq!(config.neocortex.temperature, 0.5);
         assert!(config.hippocampus.is_none());
         assert!(config.mqtt.is_none());
+        assert!(config.shell.is_none());
     }
 
     #[test]
     fn config_defaults_temperature() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
-[cortex]
+[neocortex]
 provider = "anthropic"
 model = "claude-sonnet-4-5-20250929"
 "#).unwrap();
 
         let config = Config::load(&home).unwrap();
-        assert_eq!(config.cortex.temperature, 0.7); // Default
+        assert_eq!(config.neocortex.temperature, 0.7); // Default
     }
 
     #[test]
     fn config_defaults_optionale_felder() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
-[cortex]
+[neocortex]
 provider = "anthropic"
 model = "test-model"
 "#).unwrap();
 
         let config = Config::load(&home).unwrap();
-        assert!(config.cortex.api_key_env.is_none());
-        assert!(config.cortex.context_window.is_none());
-        assert!(config.cortex.compact_threshold.is_none());
+        assert!(config.neocortex.api_key_env.is_none());
+        assert!(config.neocortex.context_window.is_none());
+        assert!(config.neocortex.compact_threshold.is_none());
     }
 
     #[test]
     fn config_alle_sections() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
-[cortex]
+[neocortex]
 provider = "mistral"
 model = "mistral-large-latest"
 temperature = 0.3
@@ -179,10 +194,10 @@ host = "localhost"
 "#).unwrap();
 
         let config = Config::load(&home).unwrap();
-        assert_eq!(config.cortex.provider, "mistral");
-        assert_eq!(config.cortex.api_key_env.as_deref(), Some("MY_KEY"));
-        assert_eq!(config.cortex.context_window, Some(50_000));
-        assert_eq!(config.cortex.compact_threshold, Some(90));
+        assert_eq!(config.neocortex.provider, "mistral");
+        assert_eq!(config.neocortex.api_key_env.as_deref(), Some("MY_KEY"));
+        assert_eq!(config.neocortex.context_window, Some(50_000));
+        assert_eq!(config.neocortex.compact_threshold, Some(90));
         let hc = config.hippocampus.as_ref().unwrap();
         assert_eq!(hc.provider, "anthropic");
         assert_eq!(hc.model, "claude-haiku-4-5-20251001");
@@ -195,7 +210,7 @@ host = "localhost"
     fn config_mqtt_mit_port() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
-[cortex]
+[neocortex]
 provider = "anthropic"
 model = "test"
 
@@ -222,7 +237,7 @@ port = 9883
     fn config_fehlende_pflichtfelder() {
         let (_tmp, home) = test_home();
         fs::write(home.join(".system/config.toml"), r#"
-[cortex]
+[neocortex]
 provider = "anthropic"
 "#).unwrap();
 
@@ -247,7 +262,7 @@ provider = "anthropic"
     #[test]
     fn api_key_env_default_anthropic() {
         let config = Config {
-            cortex: AgentConfig {
+            neocortex: AgentConfig {
                 provider: "anthropic".to_string(),
                 model: "test".to_string(),
                 temperature: 0.7,
@@ -257,6 +272,7 @@ provider = "anthropic"
             },
             hippocampus: None,
             mqtt: None,
+            shell: None,
         };
         assert_eq!(config.api_key_env(), "ANTHROPIC_API_KEY");
     }
@@ -264,7 +280,7 @@ provider = "anthropic"
     #[test]
     fn api_key_env_custom() {
         let config = Config {
-            cortex: AgentConfig {
+            neocortex: AgentConfig {
                 provider: "anthropic".to_string(),
                 model: "test".to_string(),
                 temperature: 0.7,
@@ -274,6 +290,7 @@ provider = "anthropic"
             },
             hippocampus: None,
             mqtt: None,
+            shell: None,
         };
         assert_eq!(config.api_key_env(), "MY_CUSTOM_KEY");
     }
@@ -283,9 +300,9 @@ provider = "anthropic"
     // ==========================================================
 
     #[test]
-    fn hippocampus_fallback_auf_cortex() {
+    fn hippocampus_fallback_auf_neocortex() {
         let config = Config {
-            cortex: AgentConfig {
+            neocortex: AgentConfig {
                 provider: "anthropic".to_string(),
                 model: "claude-sonnet".to_string(),
                 temperature: 0.7,
@@ -295,6 +312,7 @@ provider = "anthropic"
             },
             hippocampus: None,
             mqtt: None,
+            shell: None,
         };
         assert_eq!(config.hippocampus_provider(), "anthropic");
         assert_eq!(config.hippocampus_model(), "claude-sonnet");
@@ -303,7 +321,7 @@ provider = "anthropic"
     #[test]
     fn hippocampus_eigenes_model() {
         let config = Config {
-            cortex: AgentConfig {
+            neocortex: AgentConfig {
                 provider: "anthropic".to_string(),
                 model: "claude-sonnet".to_string(),
                 temperature: 0.7,
@@ -320,8 +338,49 @@ provider = "anthropic"
                 compact_threshold: None,
             }),
             mqtt: None,
+            shell: None,
         };
         assert_eq!(config.hippocampus_provider(), "ollama");
         assert_eq!(config.hippocampus_model(), "llama3");
+    }
+
+    // ==========================================================
+    // ShellConfig
+    // ==========================================================
+
+    #[test]
+    fn config_mit_shell() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join(".system/config.toml"), r#"
+[neocortex]
+provider = "anthropic"
+model = "test"
+
+[shell]
+whitelist = ["ls", "cat", "echo"]
+timeout = 15
+"#).unwrap();
+
+        let config = Config::load(&home).unwrap();
+        let shell = config.shell.as_ref().unwrap();
+        assert_eq!(shell.whitelist, vec!["ls", "cat", "echo"]);
+        assert_eq!(shell.timeout, 15);
+    }
+
+    #[test]
+    fn config_shell_default_timeout() {
+        let (_tmp, home) = test_home();
+        fs::write(home.join(".system/config.toml"), r#"
+[neocortex]
+provider = "anthropic"
+model = "test"
+
+[shell]
+whitelist = ["ls"]
+"#).unwrap();
+
+        let config = Config::load(&home).unwrap();
+        let shell = config.shell.as_ref().unwrap();
+        assert_eq!(shell.timeout, 30); // Default
     }
 }

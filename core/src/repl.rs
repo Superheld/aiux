@@ -24,14 +24,18 @@ impl Repl {
     /// Boot-Info anzeigen.
     pub fn print_boot_info(&self, info: &BootInfo) {
         println!("AIUX v0.1.0");
-        println!("  Cortex: {} ({})", info.model, info.provider);
+        println!("  Neocortex: {} ({})", info.model, info.provider);
         if let Some(ref hm) = info.hippocampus_model {
             println!("  Hippocampus: {} ({})", hm, info.hippocampus_provider.as_deref().unwrap_or(&info.provider));
         }
         if info.has_soul { println!("  [+] soul.md"); }
         if info.has_user { println!("  [+] user.md"); }
         if info.has_notes { println!("  [+] notes.md"); }
-        println!("  [+] Tools: soul, user, memory, scheduler");
+        if info.shell_active {
+            println!("  [+] Tools: soul, user, memory, scheduler, shell");
+        } else {
+            println!("  [+] Tools: soul, user, memory, scheduler");
+        }
         if info.mqtt_active { println!("  [+] MQTT"); }
         if info.history_count > 0 {
             println!("  [+] {} History-Nachrichten", info.history_count);

@@ -2,8 +2,8 @@
 
 ## Offen
 
-- Cortex braucht ein MQTT-Tool um selbstaendig Nerves abzufragen (Bridge ist bidirektional)
-- Cortex nutzt Tools zu wenig — braucht mehr Kontext ueber seine Umgebung
+- Neocortex braucht ein MQTT-Tool um selbstaendig Nerves abzufragen (Bridge ist bidirektional)
+- Neocortex nutzt Tools zu wenig — braucht mehr Kontext ueber seine Umgebung
 - REPL: SystemMessages und Heartbeats unterbrechen den User-Input (Timing-Problem)
 - Cron-Verhalten nochmal durchsprechen
 

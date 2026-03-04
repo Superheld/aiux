@@ -11,7 +11,7 @@ block-beta
   columns 1
   block:gehirn["Gehirn (aiux-core)"]
     columns 3
-    A["Cortex\nGrosshirn/LLM"] B["Hippocampus\nMemory"] C["Brainstem\nReflexe/Sandbox"]
+    A["Neocortex\nGrosshirn/LLM"] B["Hippocampus\nMemory"] C["Brainstem\nReflexe/Sandbox"]
   end
   block:bus["Nervensystem"]
     columns 2
@@ -30,12 +30,12 @@ block-beta
 
 | Komponente | Biologisch | Aufgabe |
 |------------|-----------|---------|
-| **Cortex** | Grosshirn | LLM. Denkt, spricht, entscheidet. |
+| **Neocortex** | Grosshirn | LLM. Denkt, spricht, entscheidet. |
 | **Hippocampus** | Gedaechtnis | Destilliert Wissen in Memory-Dateien. Vom Code gesteuert, nicht vom LLM. |
 | **Brainstem** | Hirnstamm | Sandbox fuer Nerve-Verarbeitung + Heartbeat. Keine eigene Logik. |
 | **Nerves** | Sinnesorgane | Eigene Prozesse, passive Sensoren, kommunizieren ueber MQTT. |
-| **Tools** | Haende | Aktive Handlungen. Cortex entscheidet bewusst. |
-| **Chat** | Gespraech | Direkter Zugang zum Cortex (REPL, spaeter Gateway). Kein Nerve. |
+| **Tools** | Haende | Aktive Handlungen. Neocortex entscheidet bewusst. |
+| **Chat** | Gespraech | Direkter Zugang zum Neocortex (REPL, spaeter Gateway). Kein Nerve. |
 
 ---
 
@@ -47,7 +47,7 @@ Zwei Bus-Systeme, verbunden durch die Bridge:
 graph TB
   subgraph core["Core-Prozess"]
     REPL <-->|"Events (Rust enum)"| BUS["tokio::broadcast"]
-    BUS <--> Cortex
+    BUS <--> Neocortex
     BUS <--> Hippocampus
     BUS <--> Brainstem
     BUS <--> Bridge["MQTT-Bridge"]
@@ -62,7 +62,7 @@ graph TB
 Ohne externe Dependencies — AIUX laeuft auch ohne MQTT als reiner Chat.
 
 **Externer Bus** (MQTT/Mosquitto): Prozessuebergreifend, sprachunabhaengig. Fuer Nerves.
-Bridge uebersetzt selektiv — der Cortex weiss nicht dass MQTT existiert.
+Bridge uebersetzt selektiv — der Neocortex weiss nicht dass MQTT existiert.
 
 ### Events
 
@@ -70,9 +70,9 @@ Bridge uebersetzt selektiv — der Cortex weiss nicht dass MQTT existiert.
 |-------|----------|------|
 | `UserInput` | REPL → Core | nein |
 | `ResponseToken` | Core → REPL | nein |
-| `ResponseComplete` | Core → REPL | → `aiux/cortex/response` |
-| `SystemMessage` | Core → REPL | → `aiux/cortex/system` |
-| `ToolCall` | Core → REPL | → `aiux/cortex/toolcall` |
+| `ResponseComplete` | Core → REPL | → `aiux/neocortex/response` |
+| `SystemMessage` | Core → REPL | → `aiux/neocortex/system` |
+| `ToolCall` | Core → REPL | → `aiux/neocortex/toolcall` |
 | `NerveSignal` | Bridge → Core | ← `aiux/nerve/#` |
 | `Compacting` / `Compacted` | Core → REPL | nein |
 | `ClearHistory` | REPL → Core | nein |
@@ -85,7 +85,7 @@ aiux/
 ├── nerve/                  # Nerves → Bridge (incoming)
 │   ├── register            # Nerve meldet sich an
 │   └── <name>/<event>      # Nerve-spezifische Events
-├── cortex/                 # Bridge → aussen (outgoing)
+├── neocortex/                 # Bridge → aussen (outgoing)
 │   ├── response            # LLM-Antworten
 │   ├── system              # System-Nachrichten
 │   └── toolcall            # Tool-Aufrufe
@@ -121,7 +121,7 @@ Die Bridge validiert Pflichtfelder — fehlende Felder oder kein JSON → Warnun
 
 ```mermaid
 flowchart LR
-  subgraph Cortex
+  subgraph Neocortex
     direction TB
     C1[soul + user + notes] --> C2[rig-Agent]
     C2 --> C3[Streaming + Tools]
@@ -131,14 +131,14 @@ flowchart LR
     H1[compact-preamble.md] --> H2[rig-Agent]
     H2 --> H3[Memory-Flush]
   end
-  Bus -->|UserInput| Cortex
-  Cortex -->|"Rust-Call\n(kein LLM-Entscheid)"| Hippocampus
+  Bus -->|UserInput| Neocortex
+  Neocortex -->|"Rust-Call\n(kein LLM-Entscheid)"| Hippocampus
 ```
 
 | Agent | Model | Tools | History | Ausloeser |
 |-------|-------|-------|---------|-----------|
-| **Cortex** | `model` (config.toml) | soul, user, memory, scheduler, shell | ja, Streaming | UserInput via Bus |
-| **Hippocampus** | `hippocampus_model` (Fallback: Cortex) | soul, user, memory | nein | Schwellwert, /clear, /quit |
+| **Neocortex** | `model` (config.toml) | soul, user, memory, scheduler, shell | ja, Streaming | UserInput via Bus |
+| **Hippocampus** | `hippocampus_model` (Fallback: Neocortex) | soul, user, memory | nein | Schwellwert, /clear, /quit |
 
 ### Agent-Factory
 
@@ -165,9 +165,9 @@ flowchart TD
     user.md --> P
     notes.md --> P
   end
-  P --> Cortex
-  Conv["conversations/\nYYYY-MM-DD.json"] --> Cortex
-  Config[".system/config.toml"] --> Cortex
+  P --> Neocortex
+  Conv["conversations/\nYYYY-MM-DD.json"] --> Neocortex
+  Config[".system/config.toml"] --> Neocortex
 ```
 
 | Typ | Format | Lebensdauer |
@@ -211,7 +211,7 @@ Jeder Nerve schickt beim Start eine Register-Message auf `aiux/nerve/register`:
 |------|---------|-------------|
 | `name` | ja | Eindeutiger Name des Nerve |
 | `version` | ja | Versionsnummer |
-| `description` | ja | Was der Nerve tut (Text fuer den Cortex) |
+| `description` | ja | Was der Nerve tut (Text fuer den Neocortex) |
 | `channels` | ja | MQTT-Topics die dieser Nerve publishen wird |
 | `home` | nein | Pfad zum Nerve-Verzeichnis (relativ zu aiux home, fuer interpret.rhai) |
 
@@ -263,7 +263,7 @@ flowchart LR
   MQTT["Nerve-Event\n(MQTT)"] --> BS["Brainstem"]
   BS -->|"sucht"| I["interpret.rhai\ndes Nerve"]
   I --> R["rhai-Sandbox"]
-  R -->|"Weiterleitungsregeln\ndes Nerve"| Out["MQTT / Cortex"]
+  R -->|"Weiterleitungsregeln\ndes Nerve"| Out["MQTT / Neocortex"]
 ```
 
 | Aufgabe | Beschreibung |
@@ -288,7 +288,7 @@ aiux/
 │   ├── home.rs              # home/-Verzeichnis finden
 │   ├── repl.rs              # Kommandozeile
 │   ├── mqtt.rs              # MQTT-Bridge
-│   ├── agent/{cortex,hippocampus}.rs
+│   ├── agent/{neocortex,hippocampus}.rs
 │   ├── bus/{mod,events}.rs
 │   └── tools/{soul,user,memory,scheduler,shell}.rs
 ├── nerve/                   # Nerve-Binaries
@@ -331,7 +331,7 @@ Geplant:
 ## Offene Fragen
 
 - Brainstem-LLM: Welches kleine Modell, wie angebunden?
-- Dynamische Tools: Nerves liefern dem Cortex Tools (rig-core `ToolDyn`)?
+- Dynamische Tools: Nerves liefern dem Neocortex Tools (rig-core `ToolDyn`)?
 - Heartbeat-Details: Intervalle, Watchdog-Timeouts
 
 ---

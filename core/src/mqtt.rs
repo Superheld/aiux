@@ -2,7 +2,7 @@
 //
 // Zwei Richtungen:
 // - mqtt_to_bus: MQTT Incoming (aiux/nerve/#) → interner Bus als NerveSignal
-// - bus_to_mqtt: Interner Bus → MQTT Outgoing (aiux/cortex/*)
+// - bus_to_mqtt: Interner Bus → MQTT Outgoing (aiux/neocortex/*)
 //
 // Reconnect wird von rumqttc automatisch gehandhabt (EventLoop pollt weiter).
 
@@ -148,15 +148,15 @@ impl MqttBridge {
                 Ok(event) => {
                     let (topic, payload) = match &event {
                         Event::ResponseComplete { full_text } => (
-                            "aiux/cortex/response",
+                            "aiux/neocortex/response",
                             serde_json::json!({ "text": full_text }),
                         ),
                         Event::SystemMessage { text } => (
-                            "aiux/cortex/system",
+                            "aiux/neocortex/system",
                             serde_json::json!({ "text": text }),
                         ),
                         Event::ToolCall { name } => (
-                            "aiux/cortex/toolcall",
+                            "aiux/neocortex/toolcall",
                             serde_json::json!({ "name": name }),
                         ),
                         // Alle anderen Events sind intern und gehen nicht nach MQTT

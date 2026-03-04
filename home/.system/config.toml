@@ -1,4 +1,4 @@
-[cortex]
+[neocortex]
 provider = "anthropic"
 model = "claude-sonnet-4-5-20250929"
 temperature = 0.7
@@ -12,3 +12,16 @@ model = "claude-haiku-4-5-20251001"
 [mqtt]
 host = "localhost"
 port = 1883
+
+[shell]
+timeout = 30
+whitelist = [
+  "ls", "cat", "head", "tail", "wc",
+  "df", "free", "uptime", "uname",
+  "ps", "systemctl", "journalctl",
+  "mosquitto_pub", "mosquitto_sub",
+  "ip", "ping", "ss",
+  "date", "whoami", "hostname",
+  "find", "grep", "which",
+  "echo",
+]

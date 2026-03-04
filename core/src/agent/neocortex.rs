@@ -1,4 +1,4 @@
-// Cortex: Das Grosshirn.
+// Neocortex: Das Grosshirn.
 //
 // Hoert auf UserInput Events, fragt das LLM, streamt die Antwort.
 // Einziger Agent der am Bus haengt und die History verwaltet.
@@ -24,6 +24,7 @@ use super::hippocampus;
 use crate::brainstem::SharedScheduler;
 use crate::tools::memory::MemoryTool;
 use crate::tools::scheduler::SchedulerTool;
+use crate::tools::shell::ShellTool;
 use crate::tools::soul::SoulTool;
 use crate::tools::user::UserTool;
 
@@ -82,7 +83,7 @@ fn load_preamble(home: &std::path::Path) -> String {
     parts.join("\n\n---\n\n")
 }
 
-/// Core haelt alles was der Cortex-Agent braucht.
+/// Core haelt alles was der Neocortex-Agent braucht.
 pub struct Core {
     bus: Arc<Bus>,
     home: PathBuf,
@@ -103,6 +104,7 @@ pub struct BootInfo {
     pub has_user: bool,
     pub has_notes: bool,
     pub mqtt_active: bool,
+    pub shell_active: bool,
     pub history_count: usize,
 }
 
@@ -127,14 +129,15 @@ impl Core {
     /// Info ueber den Boot-Zustand (fuer Anzeige).
     pub fn boot_info(&self) -> BootInfo {
         BootInfo {
-            provider: self.config.cortex.provider.clone(),
-            model: self.config.cortex.model.clone(),
+            provider: self.config.neocortex.provider.clone(),
+            model: self.config.neocortex.model.clone(),
             hippocampus_provider: self.config.hippocampus.as_ref().map(|h| h.provider.clone()),
             hippocampus_model: self.config.hippocampus.as_ref().map(|h| h.model.clone()),
             has_soul: self.home.join("memory/soul.md").exists(),
             has_user: self.home.join("memory/user.md").exists(),
             has_notes: self.home.join("memory/notes.md").exists(),
             mqtt_active: self.config.mqtt.is_some(),
+            shell_active: self.config.shell.is_some(),
             history_count: self.history.len(),
         }
     }
@@ -202,32 +205,42 @@ impl Core {
         let memory_tool = MemoryTool::new(&self.home, Arc::clone(&self.preamble_dirty));
         let scheduler_tool = SchedulerTool::new(self.scheduler.clone());
 
+        // ShellTool: immer registriert, aber mit leerer Whitelist wenn [shell] fehlt.
+        // (rig-core Builder aendert den Typ pro .tool() — bedingt registrieren geht nicht)
+        let shell_config = self.config.shell.clone().unwrap_or(crate::config::ShellConfig {
+            whitelist: vec![],
+            timeout: 30,
+        });
+        let shell_tool = ShellTool::new(shell_config);
+
         // Stream-Verarbeitung passiert im match-Block,
         // weil jeder Provider einen eigenen Rust-Typ erzeugt.
-        let (response_text, usage) = match self.config.cortex.provider.as_str() {
+        let (response_text, usage) = match self.config.neocortex.provider.as_str() {
             "anthropic" => {
                 let client = anthropic::Client::from_env();
                 let agent = client
-                    .agent(&self.config.cortex.model)
+                    .agent(&self.config.neocortex.model)
                     .preamble(&self.preamble)
-                    .temperature(self.config.cortex.temperature)
+                    .temperature(self.config.neocortex.temperature)
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
                     .tool(scheduler_tool)
+                    .tool(shell_tool)
                     .build();
                 stream_agent!(agent, input, self.history_for_agent(), self.bus)
             }
             "mistral" => {
                 let client = mistral::Client::from_env();
                 let agent = client
-                    .agent(&self.config.cortex.model)
+                    .agent(&self.config.neocortex.model)
                     .preamble(&self.preamble)
-                    .temperature(self.config.cortex.temperature)
+                    .temperature(self.config.neocortex.temperature)
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
                     .tool(scheduler_tool)
+                    .tool(shell_tool)
                     .build();
                 stream_agent!(agent, input, self.history_for_agent(), self.bus)
             }
@@ -237,13 +250,14 @@ impl Core {
                         anyhow::anyhow!("Ollama-Client konnte nicht erstellt werden: {}", e)
                     })?;
                 let agent = client
-                    .agent(&self.config.cortex.model)
+                    .agent(&self.config.neocortex.model)
                     .preamble(&self.preamble)
-                    .temperature(self.config.cortex.temperature)
+                    .temperature(self.config.neocortex.temperature)
                     .tool(soul_tool)
                     .tool(user_tool)
                     .tool(memory_tool)
                     .tool(scheduler_tool)
+                    .tool(shell_tool)
                     .build();
                 stream_agent!(agent, input, self.history_for_agent(), self.bus)
             }
@@ -274,8 +288,8 @@ impl Core {
 
         // Kompaktifizierung pruefen
         if let Some(ref u) = usage {
-            let window = history::context_window_size(&self.config.cortex.model, self.config.cortex.context_window);
-            let threshold = self.config.cortex.compact_threshold.unwrap_or(80);
+            let window = history::context_window_size(&self.config.neocortex.model, self.config.neocortex.context_window);
+            let threshold = self.config.neocortex.compact_threshold.unwrap_or(80);
             if threshold > 0 && history::should_compact(u.input_tokens, window, threshold) {
                 self.bus.publish(Event::Compacting);
                 match self.compact_history().await {
@@ -388,7 +402,7 @@ mod tests {
 
     fn test_config() -> Config {
         Config {
-            cortex: crate::config::AgentConfig {
+            neocortex: crate::config::AgentConfig {
                 provider: "anthropic".to_string(),
                 model: "claude-sonnet-4-5-20250929".to_string(),
                 temperature: 0.7,
@@ -398,6 +412,7 @@ mod tests {
             },
             hippocampus: None,
             mqtt: None,
+            shell: None,
         }
     }
 

@@ -101,7 +101,7 @@ destilliert Wissen automatisch in die passenden Dateien.
 - [x] Brainstem-Modul: Registry, Self-Registration, interpret-Ausfuehrung
 - [x] rhai-Engine einbetten (sandboxed, parse_json Hilfsfunktion)
 - [x] Heartbeat: Scheduler mit Cron-Jobs und Einmal-Timern
-- [x] SchedulerTool: Cortex kann Reminder setzen (set, cron, cancel, list)
+- [x] SchedulerTool: Neocortex kann Reminder setzen (set, cron, cancel, list)
 - [x] Tests (38 Tests)
 
 ### D.3: nerve-system ✓
@@ -119,19 +119,23 @@ destilliert Wissen automatisch in die passenden Dateien.
 
 ---
 
-## Phase E: Haende (Shell-Tool)
+## Phase E: Haende (Shell-Tool) ✓
 
 > Der Agent bekommt Zugriff auf sein System. Unboxed.
 
-Der Cortex braucht ein ShellTool um Befehle ausfuehren zu koennen.
-Damit kann er seinen Koerper kennenlernen, pflegen und Probleme selbst loesen
-(z.B. Mosquitto starten, Logs lesen, Pakete installieren).
+Der Neocortex kann Shell-Befehle ausfuehren um seinen Koerper kennenzulernen,
+zu pflegen und Probleme selbst zu loesen.
 
-- [ ] ShellTool: Cortex kann Shell-Befehle ausfuehren
-- [ ] Sicherheit: Welche Befehle erlaubt? Whitelist, Sandbox, oder komplett offen?
-- [ ] Ausgabe als Text an den Cortex zurueck
-- [ ] Timeout fuer lang laufende Befehle
-- [ ] Tests fuer ShellTool
+- [x] ShellTool: Neocortex kann Shell-Befehle ausfuehren
+- [x] Sicherheit: Whitelist in `[shell]`-Config, Segment-fuer-Segment-Pruefung
+- [x] Ausgabe als Text an den Neocortex zurueck (stdout/stderr, 4000 Zeichen Limit)
+- [x] Timeout fuer lang laufende Befehle (konfigurierbar, Default 30s)
+- [x] Tests fuer ShellTool (22 Tests)
+- [x] Rename: cortex → neocortex (Code, Config, MQTT-Topics, Docs)
+- [x] Shell-Config als eigene TOML-Section `[shell]` (Tool, kein Agent)
+- [x] Tool-Description mit Handlungsanweisungen und Triggern
+
+**Gesamt nach Phase E: 147 Tests (core) + 2 (nerve-shared) + 1 (nerve-system) = 150**
 
 ---
 
@@ -201,12 +205,12 @@ Frueher offen, jetzt beantwortet:
 | Wie werden Nerves angebunden? | Eigene Prozesse, MQTT nach aussen. Self-Registration beim Start. |
 | Brainstem = Scheduler? | Brainstem = Sandbox + Heartbeat + Nerve-Launcher. |
 | Nerve-Discovery? | Self-Registration per MQTT. Brainstem startet Binaries aus manifest.toml. |
-| Chat = Nerve? | Nein. Chat ist direkter Zugang zum Cortex. Gateway, kein Nerve. |
-| Cortex bekommt Nerve-Events? | Nicht automatisch. interpret.rhai entscheidet ob/was weitergeleitet wird. |
+| Chat = Nerve? | Nein. Chat ist direkter Zugang zum Neocortex. Gateway, kein Nerve. |
+| Neocortex bekommt Nerve-Events? | Nicht automatisch. interpret.rhai entscheidet ob/was weitergeleitet wird. |
 | Nerve-Format? | Verzeichnis unter nerves/ mit manifest.toml (binary) + interpret.rhai (optional). Alles andere per Self-Registration. |
 | Scriptsprache? | rhai (sandboxed, eingebettet, fertig). Keine eigene Scriptsprache. |
 | Config wo? | System-Config in home/.system/config.toml. Rollen-Config spaeter in roles/<name>/config.toml. |
 
 ---
 
-*Letzte Aktualisierung: 2026-03-03 (Phase D abgeschlossen, Phase E definiert)*
+*Letzte Aktualisierung: 2026-03-04 (Phase E abgeschlossen, Rename cortex → neocortex)*
