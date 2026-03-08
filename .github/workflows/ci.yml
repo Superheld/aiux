@@ -87,7 +87,7 @@ jobs:
         with:
           tag_name: latest
           name: Latest Build
-          prerelease: true
+          prerelease: false
           make_latest: true
           files: aiux-${{ matrix.name }}.tar.gz
           body: |

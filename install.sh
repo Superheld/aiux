@@ -2,6 +2,8 @@
 # AIUX installer — downloads the latest release from GitHub and installs it.
 #
 # Usage:
+#   wget -qO- https://raw.githubusercontent.com/Superheld/aiux/main/install.sh | sh
+#   # or with curl:
 #   curl -fsSL https://raw.githubusercontent.com/Superheld/aiux/main/install.sh | sh
 #   # or:
 #   ./install.sh
@@ -33,10 +35,13 @@ latest_tag() {
     if command -v gh >/dev/null 2>&1; then
         gh release view --repo "$REPO" --json tagName -q .tagName
     elif command -v curl >/dev/null 2>&1; then
-        curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
+        curl -fsSL "https://api.github.com/repos/$REPO/releases/tags/latest" \
+            | grep '"tag_name"' | head -1 | cut -d'"' -f4
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- "https://api.github.com/repos/$REPO/releases/tags/latest" \
             | grep '"tag_name"' | head -1 | cut -d'"' -f4
     else
-        echo "Error: need 'gh' or 'curl' installed" >&2
+        echo "Error: need 'gh', 'curl', or 'wget' installed" >&2
         exit 1
     fi
 }
@@ -54,8 +59,10 @@ download_release() {
 
     if command -v gh >/dev/null 2>&1; then
         gh release download "$tag" --repo "$REPO" --pattern "$asset" --dir "$tmpdir"
-    else
+    elif command -v curl >/dev/null 2>&1; then
         curl -fsSL -o "$tmpdir/$asset" "$url"
+    else
+        wget -qO "$tmpdir/$asset" "$url"
     fi
 
     mkdir -p "$INSTALL_DIR"
