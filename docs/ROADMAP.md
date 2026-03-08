@@ -139,6 +139,25 @@ zu pflegen und Probleme selbst zu loesen.
 
 ---
 
+## Phase E.5: Deploy-Pipeline ✓
+
+> Jede Iteration auf den Raspi bringen. Ohne Friction.
+
+Branching: `dev` (Arbeit, Tests) → `main` (Release).
+GitHub Actions baut bei jedem Push auf main automatisch einen Rolling-Release (`latest`).
+Install-Skript holt den neuesten Stand von GitHub.
+
+- [x] GitHub Actions: Tests auf `dev` + `main`
+- [x] GitHub Actions: Cross-Build (aarch64-musl + x86_64-musl) bei Push auf `main`
+- [x] Auto-Release: Rolling `latest` Release mit Binaries
+- [x] `install.sh`: Download + Install von GitHub Releases
+- [x] Erstinstallation: Home-Verzeichnis anlegen (config, memory, nerves)
+- [x] Update: Nur Binaries ersetzen, home/ nie ueberschreiben
+- [x] README.md + CLAUDE.md auf Englisch
+- [ ] Erster erfolgreicher Deploy auf den Raspi
+
+---
+
 ## Phase F: Rollen
 
 > Parallele Agent-Instanzen mit eigener Config und eigenem Memory.

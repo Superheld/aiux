@@ -1,170 +1,134 @@
 # AIUX
 
-> Embodied AI - ein OS in dem eine KI lebt, nicht eine App auf einem OS.
+> Embodied AI — an OS where AI lives, not an app on an OS.
 
-## Was ist AIUX?
+## What is AIUX?
 
-AIUX ist ein minimales System, in dem KI keine App ist, sondern eine
-Schicht des Betriebssystems. Das Linux-System ist der Koerper, der Agent
-lernt ihn zu spueren und zu nutzen.
+AIUX is a minimal system where AI is not an application but a layer of the operating system. The Linux machine is the body — the agent learns to feel and use it.
 
-Aktuell: REPL mit Streaming, Memory, Hippocampus, MQTT-Bridge.
-Siehe [docs/PRD.md](docs/PRD.md) fuer die Vision.
+Currently: REPL with streaming, memory, hippocampus, MQTT bridge, shell access.
+See [docs/PRD.md](docs/PRD.md) for the full vision.
 
-## Voraussetzungen
+## Quick Install
 
-| Was | Minimum | Hinweis |
-|-----|---------|---------|
-| **Rust** | 1.75+ | `rustup` empfohlen |
-| **Cargo** | (kommt mit Rust) | Build-System |
-| **LLM API Key** | Anthropic, Mistral oder Ollama | Provider per `config.toml` waehlbar |
-| **Mosquitto** (optional) | 2.x | Nur fuer MQTT/Nervensystem. Ohne laeuft AIUX als reiner Chat. |
+On the target machine (Raspberry Pi, any Linux box):
 
-### Plattformen
+```bash
+curl -fsSL https://raw.githubusercontent.com/Superheld/aiux/main/install.sh | sh
+```
 
-| Plattform | Status |
-|-----------|--------|
-| Linux (x86_64) | Entwicklung, getestet |
-| Linux (aarch64 / Raspi) | Zielsystem, Cross-Compilation |
-| macOS | Sollte funktionieren (Pure Rust) |
-| Windows | Ungetestet |
+This downloads the latest release binaries and sets up the home directory on first run. On subsequent runs it only updates the binaries — config and memory are never touched.
 
-### Optionale Abhaengigkeiten
+You can also clone the repo and run it manually:
 
-- **Mosquitto** - MQTT-Broker fuer das Nervensystem (Nerves, Brainstem)
-  - Arch: `pacman -S mosquitto`
-  - Alpine: `apk add mosquitto`
-  - Debian/Ubuntu: `apt install mosquitto`
+```bash
+./install.sh
+```
 
-## Schnellstart (lokal)
+After installing, set your API key:
+
+```bash
+# Edit ~/.env
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Then start:
+
+```bash
+~/bin/aiux-core
+```
+
+## Prerequisites
+
+| What | Minimum | Note |
+|------|---------|------|
+| **Linux** | aarch64 or x86_64 | Alpine, Debian, Raspberry Pi OS, ... |
+| **LLM API Key** | Anthropic | Provider configurable in `config.toml` |
+| **Mosquitto** (optional) | 2.x | Only for MQTT / nerve system. Without it AIUX runs as plain chat. |
+
+## Building from Source
 
 ```bash
 git clone https://github.com/Superheld/aiux.git
 cd aiux
 
-# API Key setzen
 cp .env.example .env
-# .env editieren: ANTHROPIC_API_KEY=sk-ant-...
+# Edit .env: ANTHROPIC_API_KEY=sk-ant-...
 
-# Bauen und starten
 cargo build --release
 cargo run
 ```
 
-### Mit MQTT (Nervensystem)
+### With MQTT (nerve system)
 
 ```bash
-# Mosquitto starten
+# Start Mosquitto
 systemctl start mosquitto
-# oder: mosquitto -d
+# or: mosquitto -d
 
 # In home/.system/config.toml:
-# mqtt_host = "localhost"
-# mqtt_port = 1883
+# [mqtt]
+# host = "localhost"
+# port = 1883
 
 cargo run
 
-# In einem anderen Terminal mitlesen:
+# Listen on another terminal:
 mosquitto_sub -t 'aiux/#' -v
 
-# Test-Signal senden:
+# Send a test signal:
 mosquitto_pub -t aiux/nerve/test -m '{"source":"test","data":"hello"}'
 ```
 
 ## Tests
 
 ```bash
-# Alle Tests ausfuehren
-cargo test
-
-# Einzelnen Test
-cargo test test_name
-
-# Nur Unit-Tests (ohne Integration)
-cargo test --lib
+cargo test          # all tests
+cargo test --lib    # unit tests only
 ```
 
-Aktuell 77 Tests. Alle Tests laufen **ohne Netzwerk, ohne API-Key, ohne Mosquitto**.
-LLM wird gemockt, Filesystem mit tempdir. Siehe [docs/TESTING.md](docs/TESTING.md).
+All tests run **without network, API keys, or Mosquitto**. The LLM is mocked, the filesystem uses tempdir. See [docs/TESTING.md](docs/TESTING.md).
 
-## Auf dem Raspberry Pi
+## Architecture
 
-### Voraussetzungen
+Built after a biological model:
 
-- Raspberry Pi 4 (aarch64) mit Linux (Alpine, Raspberry Pi OS, etc.)
-- SSH-Zugang zum Raspi
-- Rust auf dem Entwicklungsrechner
-- Anthropic API Key
+| Component | Role |
+|-----------|------|
+| **Neocortex** | The brain — LLM agent with streaming and tools |
+| **Hippocampus** | Automatic memory — listens, distills knowledge |
+| **Nerves** | Sensors — own processes, communicate via MQTT |
+| **Brainstem** | Reflexes — rhai sandbox, heartbeat, nerve launcher |
+| **Tools** | Hands — shell commands, memory read/write |
+| **Chat** | Direct access to the neocortex, no filtering |
 
-### Option A: Auf dem Raspi bauen
-
-```bash
-# Auf dem Raspi: Rust installieren
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Repo klonen und bauen
-git clone https://github.com/Superheld/aiux.git
-cd aiux
-cargo build --release
-
-# API Key setzen
-cp .env.example .env
-# .env editieren
-
-# Starten
-./target/release/aiux-core
-```
-
-### Option B: Cross-Compilation (schneller)
-
-```bash
-# Auf dem Entwicklungsrechner: Target hinzufuegen
-rustup target add aarch64-unknown-linux-musl
-
-# Bauen
-cargo build --release --target aarch64-unknown-linux-musl
-
-# Binary + home/ auf den Raspi kopieren
-scp target/aarch64-unknown-linux-musl/release/aiux-core user@raspi:~/
-scp -r home/ user@raspi:~/home/
-
-# Auf dem Raspi: API Key setzen und starten
-ssh user@raspi
-echo "ANTHROPIC_API_KEY=sk-ant-..." > ~/home/.env
-./aiux-core
-```
-
-> **Hinweis:** Cross-Compilation braucht ggf. einen Linker fuer aarch64.
-> Auf Arch Linux: `sudo pacman -S aarch64-linux-gnu-gcc`
-> und in `~/.cargo/config.toml`:
-> ```toml
-> [target.aarch64-unknown-linux-musl]
-> linker = "aarch64-linux-gnu-gcc"
-> ```
-
-## Projektstruktur
+Communication happens through an internal event bus (`tokio::broadcast`).
+Nerves are external processes connected via MQTT.
 
 ```
 aiux/
-├── core/src/        # aiux-core (Rust) - das Gehirn
-│   ├── agent/       # Cortex (LLM) + Hippocampus (Memory)
-│   ├── bus/         # Interner Event-Bus (tokio::broadcast)
-│   ├── mqtt.rs      # MQTT-Bridge (intern <-> extern)
-│   └── tools/       # SoulTool, UserTool, MemoryTool
-├── nerve/           # aiux-nerve (Workspace-Crate, Platzhalter)
-├── home/            # Agent-Home
-│   ├── .system/     # Config + System-Prompts
-│   └── memory/      # Soul, User, Shortterm, Conversations
-└── docs/            # PRD, Architektur, Roadmap, Testing
+├── core/src/        # aiux-core — the brain
+│   ├── agent/       # Neocortex (LLM) + Hippocampus (memory)
+│   ├── bus/         # Internal event bus
+│   ├── brainstem.rs # Reflexes, nerve launcher, scheduler
+│   ├── mqtt.rs      # MQTT bridge (internal <-> external)
+│   └── tools/       # Shell, Soul, User, Memory, Scheduler
+├── nerve/           # Nerve processes
+│   ├── shared/      # Common MQTT + registration code
+│   └── system/      # System monitor (CPU, RAM, disk, temp)
+├── home/            # Agent home (template for first install)
+│   ├── .system/     # Config + system prompts
+│   └── nerves/      # Nerve manifests + rhai scripts
+└── docs/            # PRD, architecture, roadmap, testing
 ```
 
-## Dokumentation
+## Documentation
 
-- [docs/PRD.md](docs/PRD.md) - Vision und Konzepte
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Technische Architektur
-- [docs/ROADMAP.md](docs/ROADMAP.md) - Phasen und Status
-- [docs/TESTING.md](docs/TESTING.md) - Test-Strategie
+- [docs/PRD.md](docs/PRD.md) — Vision and concepts
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Technical architecture
+- [docs/ROADMAP.md](docs/ROADMAP.md) — Phases and status
+- [docs/TESTING.md](docs/TESTING.md) — Test strategy
 
-## Lizenz
+## License
 
-MIT - siehe [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE)

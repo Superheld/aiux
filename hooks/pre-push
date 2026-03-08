@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+# Pre-push: full quality gate before code leaves the machine.
+# Skip with: git push --no-verify
+
+FAILED=0
+
+echo "[pre-push] cargo clippy"
+if ! cargo clippy -- -D warnings 2>/dev/null; then
+    echo "  FAILED: clippy found warnings"
+    FAILED=1
+fi
+
+echo "[pre-push] cargo test"
+if ! cargo test 2>/dev/null; then
+    echo "  FAILED: tests did not pass"
+    FAILED=1
+fi
+
+if [ $FAILED -ne 0 ]; then
+    echo ""
+    echo "Pre-push checks failed. Skip with: git push --no-verify"
+    exit 1
+fi
+
+echo "[pre-push] OK"
+exit 0

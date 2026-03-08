@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+
+# Commit message format check.
+# Expected: feat(<scope>):, fix(<scope>):, docs:, refactor:, test:, merge:, chore:
+
+MSG_FILE="$1"
+MSG=$(head -1 "$MSG_FILE")
+
+if ! echo "$MSG" | grep -qE '^(feat|fix|docs|refactor|test|merge|chore)(\(.+\))?:'; then
+    echo "[commit-msg] FAILED: invalid format"
+    echo "  Got: $MSG"
+    echo "  Expected: feat(scope): description"
+    echo "  Valid prefixes: feat, fix, docs, refactor, test, merge, chore"
+    exit 1
+fi
+
+exit 0

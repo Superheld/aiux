@@ -1,0 +1,41 @@
+#!/bin/bash
+set -euo pipefail
+
+# Pre-commit: fast quality checks on staged files only.
+# AI review runs as Claude Code hook (not here).
+# Skip with: git commit --no-verify
+
+FAILED=0
+
+# --- cargo fmt ---
+if command -v cargo >/dev/null 2>&1; then
+    echo "[pre-commit] cargo fmt --check"
+    if ! cargo fmt --check 2>/dev/null; then
+        echo "  FAILED: code not formatted. Fix: cargo fmt"
+        FAILED=1
+    fi
+else
+    echo "[pre-commit] SKIP: cargo not found, CI will enforce formatting"
+fi
+
+# --- staged .rs files: check for debug leftovers ---
+STAGED_RS=$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$' || true)
+
+if [[ -n "$STAGED_RS" ]]; then
+    echo "[pre-commit] checking for debug leftovers"
+    for file in $STAGED_RS; do
+        if git diff --cached -- "$file" | grep -qE '^\+.*(dbg!|println!.*DEBUG|todo!|unimplemented!)'; then
+            echo "  WARNING: $file contains debug/todo macros"
+            FAILED=1
+        fi
+    done
+fi
+
+if [ $FAILED -ne 0 ]; then
+    echo ""
+    echo "Pre-commit checks failed. Skip with: git commit --no-verify"
+    exit 1
+fi
+
+echo "[pre-commit] OK"
+exit 0

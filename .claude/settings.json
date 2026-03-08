@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/roland/Entwicklung/aiux/.claude/hooks/block-sensitive.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "The command '${input.command}' is about to be executed. If this is NOT a git commit command, respond with allow immediately. If this IS a git commit, review the session's work before committing: (1) incomplete implementations or TODO left behind, (2) debug code or temporary hacks, (3) security issues in the changes, (4) commit message follows convention (feat/fix/docs/refactor/test/merge/chore). If everything looks good, allow. If there are real problems, block and explain briefly.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "decision": { "enum": ["allow", "block"] },
+                "reason": { "type": "string" }
+              },
+              "required": ["decision"]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
