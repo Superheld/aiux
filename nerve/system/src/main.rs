@@ -5,8 +5,8 @@
 
 use std::time::Duration;
 
-use sysinfo::System;
 use serde_json::json;
+use sysinfo::System;
 
 use nerve_shared::mqtt;
 use nerve_shared::registration::{self, NerveInfo};
@@ -48,9 +48,7 @@ async fn main() {
         version: "0.1.0".into(),
         description: "Ueberwacht CPU, RAM, Disk, Temperatur".into(),
         source: "nerve/system".into(),
-        channels: vec![
-            "aiux/nerve/system/stats".into(),
-        ],
+        channels: vec!["aiux/nerve/system/stats".into()],
         home: Some("nerves/system-monitor".into()),
     };
 
@@ -85,8 +83,8 @@ async fn main() {
 fn collect_stats(sys: &System) -> serde_json::Value {
     let total_mem = sys.total_memory();
     let used_mem = sys.used_memory();
-    let cpu_usage: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>()
-        / sys.cpus().len().max(1) as f32;
+    let cpu_usage: f32 =
+        sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len().max(1) as f32;
 
     let mut stats = json!({
         "cpu_percent": (cpu_usage * 10.0).round() / 10.0,
@@ -99,7 +97,10 @@ fn collect_stats(sys: &System) -> serde_json::Value {
 
     // Disk: Root-Partition
     let disks = sysinfo::Disks::new_with_refreshed_list();
-    if let Some(root) = disks.iter().find(|d| d.mount_point() == std::path::Path::new("/")) {
+    if let Some(root) = disks
+        .iter()
+        .find(|d| d.mount_point() == std::path::Path::new("/"))
+    {
         let total = root.total_space();
         let avail = root.available_space();
         stats["disk_total_gb"] = json!((total as f64 / 1_073_741_824.0 * 10.0).round() / 10.0);

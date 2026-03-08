@@ -19,7 +19,6 @@ use std::sync::Arc;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-
 /// Ergebnis aller Tool-Aktionen.
 #[derive(Serialize)]
 pub struct ToolResult {
@@ -55,18 +54,16 @@ pub fn execute_single_file(
     preamble_dirty: &Arc<AtomicBool>,
 ) -> Result<ToolResult, ToolError> {
     match args.action.as_str() {
-        "read" => {
-            match fs::read_to_string(path) {
-                Ok(content) => Ok(ToolResult {
-                    success: true,
-                    message: content,
-                }),
-                Err(_) => Ok(ToolResult {
-                    success: false,
-                    message: "Datei nicht gefunden.".into(),
-                }),
-            }
-        }
+        "read" => match fs::read_to_string(path) {
+            Ok(content) => Ok(ToolResult {
+                success: true,
+                message: content,
+            }),
+            Err(_) => Ok(ToolResult {
+                success: false,
+                message: "Datei nicht gefunden.".into(),
+            }),
+        },
         "write" => {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)
@@ -84,8 +81,8 @@ pub fn execute_single_file(
             if args.old_content.is_empty() {
                 return Err(ToolError("old_content ist erforderlich bei edit".into()));
             }
-            let content = fs::read_to_string(path)
-                .map_err(|e| ToolError(format!("Lesefehler: {}", e)))?;
+            let content =
+                fs::read_to_string(path).map_err(|e| ToolError(format!("Lesefehler: {}", e)))?;
             if !content.contains(&args.old_content) {
                 return Err(ToolError("old_content nicht gefunden.".into()));
             }

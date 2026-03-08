@@ -15,10 +15,10 @@ mod tools;
 
 use std::sync::{Arc, Mutex};
 
+use crate::agent::Core;
 use crate::brainstem::Brainstem;
 use crate::bus::Bus;
 use crate::config::Config;
-use crate::agent::Core;
 use crate::mqtt::MqttBridge;
 use crate::repl::Repl;
 

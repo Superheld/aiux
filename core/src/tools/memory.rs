@@ -184,7 +184,11 @@ mod tests {
     #[tokio::test]
     async fn edit_ersetzt_abschnitt() {
         let (tmp, tool) = test_tool();
-        fs::write(tmp.path().join("memory/notes.md"), "Rust ist toll und schnell.").unwrap();
+        fs::write(
+            tmp.path().join("memory/notes.md"),
+            "Rust ist toll und schnell.",
+        )
+        .unwrap();
 
         let result = tool.call(edit_args("toll", "super")).await.unwrap();
         assert!(result.success);

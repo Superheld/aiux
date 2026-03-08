@@ -7,9 +7,9 @@
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
-use crate::bus::Bus;
 use crate::agent::BootInfo;
 use crate::bus::events::Event;
+use crate::bus::Bus;
 
 /// REPL - Read-Eval-Print-Loop als Event-Teilnehmer.
 pub struct Repl {
@@ -26,17 +26,31 @@ impl Repl {
         println!("AIUX v0.1.0");
         println!("  Neocortex: {} ({})", info.model, info.provider);
         if let Some(ref hm) = info.hippocampus_model {
-            println!("  Hippocampus: {} ({})", hm, info.hippocampus_provider.as_deref().unwrap_or(&info.provider));
+            println!(
+                "  Hippocampus: {} ({})",
+                hm,
+                info.hippocampus_provider
+                    .as_deref()
+                    .unwrap_or(&info.provider)
+            );
         }
-        if info.has_soul { println!("  [+] soul.md"); }
-        if info.has_user { println!("  [+] user.md"); }
-        if info.has_notes { println!("  [+] notes.md"); }
+        if info.has_soul {
+            println!("  [+] soul.md");
+        }
+        if info.has_user {
+            println!("  [+] user.md");
+        }
+        if info.has_notes {
+            println!("  [+] notes.md");
+        }
         if info.shell_active {
             println!("  [+] Tools: soul, user, memory, scheduler, shell");
         } else {
             println!("  [+] Tools: soul, user, memory, scheduler");
         }
-        if info.mqtt_active { println!("  [+] MQTT"); }
+        if info.mqtt_active {
+            println!("  [+] MQTT");
+        }
         if info.history_count > 0 {
             println!("  [+] {} History-Nachrichten", info.history_count);
         }

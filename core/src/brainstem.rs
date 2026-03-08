@@ -15,8 +15,8 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 use tokio::time::Instant;
 
-use crate::bus::Bus;
 use crate::bus::events::Event;
+use crate::bus::Bus;
 
 // ==========================================================
 // Registry (Self-Registration)
@@ -24,6 +24,7 @@ use crate::bus::events::Event;
 
 /// Ein registrierter Nerve.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct NerveEntry {
     pub name: String,
     pub version: String,
@@ -42,7 +43,9 @@ pub struct NerveRegistry {
 
 impl NerveRegistry {
     fn new() -> Self {
-        Self { nerves: HashMap::new() }
+        Self {
+            nerves: HashMap::new(),
+        }
     }
 
     /// Nerve aus Register-Message eintragen.
@@ -71,11 +74,13 @@ impl NerveRegistry {
     }
 
     /// Anzahl registrierter Nerves.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.nerves.len()
     }
 
     /// Alle registrierten Nerve-Namen.
+    #[allow(dead_code)]
     pub fn names(&self) -> Vec<&str> {
         self.nerves.keys().map(|s| s.as_str()).collect()
     }
@@ -117,7 +122,8 @@ fn launch_nerves(home: &Path, bus: &Bus) -> Vec<std::process::Child> {
             continue;
         }
 
-        let dir_name = path.file_name()
+        let dir_name = path
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("?")
             .to_string();
@@ -162,7 +168,10 @@ fn launch_nerves(home: &Path, bus: &Bus) -> Vec<std::process::Child> {
             }
             Err(e) => {
                 bus.publish(Event::SystemMessage {
-                    text: format!("Brainstem: Nerve '{}' nicht startbar ({}): {}", dir_name, binary, e),
+                    text: format!(
+                        "Brainstem: Nerve '{}' nicht startbar ({}): {}",
+                        dir_name, binary, e
+                    ),
                 });
             }
         }
@@ -186,13 +195,11 @@ pub struct ScheduleEntry {
 pub enum ScheduleKind {
     /// Cron-Job: wiederkehrend nach Zeitplan.
     Cron {
-        schedule: cron::Schedule,
+        schedule: Box<cron::Schedule>,
         next_fire: Instant,
     },
     /// Einmaliger Timer.
-    Once {
-        fire_at: Instant,
-    },
+    Once { fire_at: Instant },
 }
 
 /// Geteilter Scheduler-Zustand zwischen Brainstem und SchedulerTool.
@@ -219,7 +226,8 @@ pub fn parse_delay(s: &str) -> Result<std::time::Duration, String> {
     }
 
     let (num_str, unit) = s.split_at(s.len() - 1);
-    let num: u64 = num_str.parse()
+    let num: u64 = num_str
+        .parse()
         .map_err(|_| format!("Ungueltige Zahl: '{}'", num_str))?;
 
     if num == 0 {
@@ -231,7 +239,10 @@ pub fn parse_delay(s: &str) -> Result<std::time::Duration, String> {
         "m" => Ok(std::time::Duration::from_secs(num * 60)),
         "h" => Ok(std::time::Duration::from_secs(num * 3600)),
         "d" => Ok(std::time::Duration::from_secs(num * 86400)),
-        _ => Err(format!("Unbekannte Einheit '{}'. Erlaubt: s, m, h, d", unit)),
+        _ => Err(format!(
+            "Unbekannte Einheit '{}'. Erlaubt: s, m, h, d",
+            unit
+        )),
     }
 }
 
@@ -306,7 +317,14 @@ impl Brainstem {
         // parse_json: JSON-String → rhai::Map (fuer interpret.rhai Scripts)
         engine.register_fn("parse_json", parse_json_for_rhai);
 
-        Self { bus, home: home.to_path_buf(), registry, engine, scheduler, children }
+        Self {
+            bus,
+            home: home.to_path_buf(),
+            registry,
+            engine,
+            scheduler,
+            children,
+        }
     }
 
     /// Berechnet die Dauer bis zum naechsten faelligen Timer (max 60s).
@@ -341,7 +359,10 @@ impl Brainstem {
 
         for (i, entry) in entries.iter_mut().enumerate() {
             match &mut entry.kind {
-                ScheduleKind::Cron { schedule, next_fire } => {
+                ScheduleKind::Cron {
+                    schedule,
+                    next_fire,
+                } => {
                     if *next_fire <= now {
                         to_fire.push(entry.label.clone());
                         let dur = next_cron_duration(schedule);
@@ -402,7 +423,13 @@ impl Brainstem {
     }
 
     /// NerveSignal verarbeiten: Registration oder normales Event.
-    fn handle_nerve_signal(&mut self, source: &str, event: &str, data: &serde_json::Value, ts: &str) {
+    fn handle_nerve_signal(
+        &mut self,
+        source: &str,
+        event: &str,
+        data: &serde_json::Value,
+        ts: &str,
+    ) {
         // Self-Registration: Nerve meldet sich an
         if event == "register" {
             self.handle_registration(source, data);
@@ -413,7 +440,10 @@ impl Brainstem {
             Some(e) => e.clone(),
             None => {
                 self.bus.publish(Event::SystemMessage {
-                    text: format!("Brainstem: Unbekannter Nerve '{}' (nicht registriert)", source),
+                    text: format!(
+                        "Brainstem: Unbekannter Nerve '{}' (nicht registriert)",
+                        source
+                    ),
                 });
                 return;
             }
@@ -437,7 +467,10 @@ impl Brainstem {
             Ok(s) => s,
             Err(e) => {
                 self.bus.publish(Event::SystemMessage {
-                    text: format!("Brainstem: interpret.rhai nicht lesbar ({}): {}", entry.name, e),
+                    text: format!(
+                        "Brainstem: interpret.rhai nicht lesbar ({}): {}",
+                        entry.name, e
+                    ),
                 });
                 return;
             }
@@ -451,7 +484,10 @@ impl Brainstem {
         scope.push_constant("ts", ts.to_string());
 
         // Script ausfuehren
-        let result = match self.engine.eval_with_scope::<rhai::Dynamic>(&mut scope, &script) {
+        let result = match self
+            .engine
+            .eval_with_scope::<rhai::Dynamic>(&mut scope, &script)
+        {
             Ok(r) => r,
             Err(e) => {
                 self.bus.publish(Event::SystemMessage {
@@ -477,32 +513,47 @@ impl Brainstem {
             }
         };
 
-        let version = data.get("version")
+        let version = data
+            .get("version")
             .and_then(|v| v.as_str())
             .unwrap_or("?")
             .to_string();
 
-        let description = data.get("description")
+        let description = data
+            .get("description")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
 
-        let channels: Vec<String> = data.get("channels")
+        let channels: Vec<String> = data
+            .get("channels")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
-        let home_dir = data.get("home")
-            .and_then(|v| v.as_str())
-            .map(String::from);
+        let home_dir = data.get("home").and_then(|v| v.as_str()).map(String::from);
 
         let n_channels = channels.len();
-        let entry = NerveEntry { name: name.clone(), version, description, channels, home_dir };
+        let entry = NerveEntry {
+            name: name.clone(),
+            version,
+            description,
+            channels,
+            home_dir,
+        };
 
         if self.registry.register(entry) {
             self.bus.publish(Event::SystemMessage {
-                text: format!("Nerve registriert: {} ({} Channel{})",
-                    name, n_channels, if n_channels != 1 { "s" } else { "" }),
+                text: format!(
+                    "Nerve registriert: {} ({} Channel{})",
+                    name,
+                    n_channels,
+                    if n_channels != 1 { "s" } else { "" }
+                ),
             });
         } else {
             self.bus.publish(Event::SystemMessage {
@@ -525,7 +576,8 @@ impl Brainstem {
         };
 
         // forward: bool — weiterleiten?
-        let forward = map.get("forward")
+        let forward = map
+            .get("forward")
             .and_then(|v| v.clone().try_cast::<bool>())
             .unwrap_or(false);
 
@@ -533,22 +585,21 @@ impl Brainstem {
             return;
         }
 
-        let target = map.get("target")
+        let target = map
+            .get("target")
             .and_then(|v| v.clone().try_cast::<String>())
             .unwrap_or_default();
 
-        let text = map.get("text")
+        let text = map
+            .get("text")
             .and_then(|v| v.clone().try_cast::<String>())
             .unwrap_or_default();
 
-        match target.as_str() {
-            "neocortex" => {
-                self.bus.publish(Event::SystemMessage {
-                    text: format!("Brainstem [{}]: {}", nerve_name, text),
-                });
-            }
-            // Spaeter: "mqtt" → MQTT publish
-            _ => {} // "ignore" oder unbekannt → nichts tun
+        // Spaeter: "mqtt" → MQTT publish. "ignore" oder unbekannt → nichts tun.
+        if target.as_str() == "neocortex" {
+            self.bus.publish(Event::SystemMessage {
+                text: format!("Brainstem [{}]: {}", nerve_name, text),
+            });
         }
     }
 
@@ -566,6 +617,7 @@ impl Brainstem {
     }
 
     /// Zugriff auf die Registry (fuer Tests).
+    #[allow(dead_code)]
     pub fn registry(&self) -> &NerveRegistry {
         &self.registry
     }
@@ -578,8 +630,8 @@ impl Brainstem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     fn test_home() -> (TempDir, PathBuf) {
         let tmp = TempDir::new().unwrap();
@@ -603,7 +655,11 @@ mod tests {
     }
 
     /// Brainstem erstellen und Nerve registrieren. Gibt (brainstem, bus) zurueck.
-    fn brainstem_with_nerve(home: &Path, name: &str, home_dir: Option<&str>) -> (Brainstem, Arc<Bus>) {
+    fn brainstem_with_nerve(
+        home: &Path,
+        name: &str,
+        home_dir: Option<&str>,
+    ) -> (Brainstem, Arc<Bus>) {
         let bus = Arc::new(Bus::new(16));
         let mut brainstem = Brainstem::new(bus.clone(), home, test_scheduler());
         let data = register_data(name, home_dir);
@@ -737,7 +793,10 @@ mod tests {
         let mut rx = bus.subscribe();
 
         brainstem.handle_nerve_signal(
-            "nerve/ghost", "boo", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+            "nerve/ghost",
+            "boo",
+            &serde_json::Value::Null,
+            "2026-03-02T14:00:00Z",
         );
 
         let event = rx.try_recv().unwrap();
@@ -751,13 +810,17 @@ mod tests {
     fn brainstem_ohne_interpret_script() {
         let (_tmp, home) = test_home();
         // Nerve mit home_dir aber ohne interpret.rhai
-        let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
+        let (mut brainstem, bus) =
+            brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         // Verzeichnis anlegen, aber kein Script
         fs::create_dir_all(home.join("nerves/test-nerve")).unwrap();
         let mut rx = bus.subscribe();
 
         brainstem.handle_nerve_signal(
-            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+            "nerve/test-nerve",
+            "ping",
+            &serde_json::Value::Null,
+            "2026-03-02T14:00:00Z",
         );
 
         let event = rx.try_recv().unwrap();
@@ -772,14 +835,22 @@ mod tests {
     #[test]
     fn rhai_forward_true_neocortex() {
         let (_tmp, home) = test_home();
-        write_script(&home, "nerves/test-nerve", r#"
+        write_script(
+            &home,
+            "nerves/test-nerve",
+            r#"
             #{ forward: true, target: "neocortex", text: `Hallo von ${source}` }
-        "#);
-        let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
+        "#,
+        );
+        let (mut brainstem, bus) =
+            brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         let mut rx = bus.subscribe();
 
         brainstem.handle_nerve_signal(
-            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+            "nerve/test-nerve",
+            "ping",
+            &serde_json::Value::Null,
+            "2026-03-02T14:00:00Z",
         );
 
         let event = rx.try_recv().unwrap();
@@ -792,14 +863,22 @@ mod tests {
     #[test]
     fn rhai_forward_false() {
         let (_tmp, home) = test_home();
-        write_script(&home, "nerves/test-nerve", r#"
+        write_script(
+            &home,
+            "nerves/test-nerve",
+            r#"
             #{ forward: false }
-        "#);
-        let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
+        "#,
+        );
+        let (mut brainstem, bus) =
+            brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         let mut rx = bus.subscribe();
 
         brainstem.handle_nerve_signal(
-            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+            "nerve/test-nerve",
+            "ping",
+            &serde_json::Value::Null,
+            "2026-03-02T14:00:00Z",
         );
 
         assert!(rx.try_recv().is_err());
@@ -808,14 +887,22 @@ mod tests {
     #[test]
     fn rhai_script_variablen() {
         let (_tmp, home) = test_home();
-        write_script(&home, "nerves/test-nerve", r#"
+        write_script(
+            &home,
+            "nerves/test-nerve",
+            r#"
             #{ forward: true, target: "neocortex", text: `${source}|${event}|${ts}` }
-        "#);
-        let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
+        "#,
+        );
+        let (mut brainstem, bus) =
+            brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         let mut rx = bus.subscribe();
 
         brainstem.handle_nerve_signal(
-            "nerve/test-nerve", "ping", &serde_json::json!({"x":1}), "2026-03-02T14:00:00Z"
+            "nerve/test-nerve",
+            "ping",
+            &serde_json::json!({"x":1}),
+            "2026-03-02T14:00:00Z",
         );
 
         let event = rx.try_recv().unwrap();
@@ -831,11 +918,15 @@ mod tests {
     fn rhai_script_fehler() {
         let (_tmp, home) = test_home();
         write_script(&home, "nerves/test-nerve", "das ist kein rhai {{{");
-        let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
+        let (mut brainstem, bus) =
+            brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         let mut rx = bus.subscribe();
 
         brainstem.handle_nerve_signal(
-            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+            "nerve/test-nerve",
+            "ping",
+            &serde_json::Value::Null,
+            "2026-03-02T14:00:00Z",
         );
 
         let event = rx.try_recv().unwrap();
@@ -852,7 +943,10 @@ mod tests {
         let result = parse_json_for_rhai(r#"{"label":"test","path":"memory/x.md","count":42}"#);
         let map = result.cast::<rhai::Map>();
         assert_eq!(map.get("label").unwrap().clone().cast::<String>(), "test");
-        assert_eq!(map.get("path").unwrap().clone().cast::<String>(), "memory/x.md");
+        assert_eq!(
+            map.get("path").unwrap().clone().cast::<String>(),
+            "memory/x.md"
+        );
         assert_eq!(map.get("count").unwrap().clone().cast::<i64>(), 42);
     }
 
@@ -875,22 +969,31 @@ mod tests {
     fn parse_json_array() {
         let result = parse_json_for_rhai(r#"{"items":[1,2,3]}"#);
         let map = result.cast::<rhai::Map>();
-        let items = map.get("items").unwrap().clone().cast::<Vec<rhai::Dynamic>>();
+        let items = map
+            .get("items")
+            .unwrap()
+            .clone()
+            .cast::<Vec<rhai::Dynamic>>();
         assert_eq!(items.len(), 3);
     }
 
     #[test]
     fn rhai_interpret_mit_parse_json() {
         let (_tmp, home) = test_home();
-        write_script(&home, "nerves/test-nerve", r#"
+        write_script(
+            &home,
+            "nerves/test-nerve",
+            r#"
             let d = parse_json(data);
             if d.label == "alert" {
                 #{ forward: true, target: "neocortex", text: `Alarm: ${d.msg}` }
             } else {
                 #{ forward: false }
             }
-        "#);
-        let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
+        "#,
+        );
+        let (mut brainstem, bus) =
+            brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         let mut rx = bus.subscribe();
 
         let data = serde_json::json!({"label": "alert", "msg": "CPU hoch"});
@@ -898,7 +1001,9 @@ mod tests {
 
         let event = rx.try_recv().unwrap();
         match event {
-            Event::SystemMessage { text } => assert!(text.contains("Alarm: CPU hoch"), "Text: {}", text),
+            Event::SystemMessage { text } => {
+                assert!(text.contains("Alarm: CPU hoch"), "Text: {}", text)
+            }
             other => panic!("Erwartet SystemMessage, bekam: {:?}", other),
         }
     }
@@ -906,15 +1011,20 @@ mod tests {
     #[test]
     fn rhai_interpret_parse_json_forward_false() {
         let (_tmp, home) = test_home();
-        write_script(&home, "nerves/test-nerve", r#"
+        write_script(
+            &home,
+            "nerves/test-nerve",
+            r#"
             let d = parse_json(data);
             if d.label == "alert" {
                 #{ forward: true, target: "neocortex", text: "ja" }
             } else {
                 #{ forward: false }
             }
-        "#);
-        let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
+        "#,
+        );
+        let (mut brainstem, bus) =
+            brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         let mut rx = bus.subscribe();
 
         let data = serde_json::json!({"label": "normal", "msg": "alles gut"});
@@ -927,11 +1037,15 @@ mod tests {
     fn rhai_kein_map_zurueck() {
         let (_tmp, home) = test_home();
         write_script(&home, "nerves/test-nerve", "42");
-        let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
+        let (mut brainstem, bus) =
+            brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         let mut rx = bus.subscribe();
 
         brainstem.handle_nerve_signal(
-            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+            "nerve/test-nerve",
+            "ping",
+            &serde_json::Value::Null,
+            "2026-03-02T14:00:00Z",
         );
 
         let event = rx.try_recv().unwrap();
@@ -945,11 +1059,15 @@ mod tests {
     fn rhai_endlosschleife_abbruch() {
         let (_tmp, home) = test_home();
         write_script(&home, "nerves/test-nerve", "loop { }");
-        let (mut brainstem, bus) = brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
+        let (mut brainstem, bus) =
+            brainstem_with_nerve(&home, "test-nerve", Some("nerves/test-nerve"));
         let mut rx = bus.subscribe();
 
         brainstem.handle_nerve_signal(
-            "nerve/test-nerve", "ping", &serde_json::Value::Null, "2026-03-02T14:00:00Z"
+            "nerve/test-nerve",
+            "ping",
+            &serde_json::Value::Null,
+            "2026-03-02T14:00:00Z",
         );
 
         let event = rx.try_recv().unwrap();
@@ -1012,7 +1130,11 @@ mod tests {
         let (_tmp, home) = test_home();
         let dir = home.join("nerves/test-nerve");
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("manifest.toml"), "binary = \"gibt-es-nicht-12345\"").unwrap();
+        fs::write(
+            dir.join("manifest.toml"),
+            "binary = \"gibt-es-nicht-12345\"",
+        )
+        .unwrap();
 
         let bus = Bus::new(16);
         let mut rx = bus.subscribe();
@@ -1045,8 +1167,11 @@ mod tests {
         let event = rx.try_recv().unwrap();
         match event {
             Event::SystemMessage { text } => {
-                assert!(text.contains("gestartet") || text.contains("nicht startbar"),
-                    "Unerwartete Message: {}", text);
+                assert!(
+                    text.contains("gestartet") || text.contains("nicht startbar"),
+                    "Unerwartete Message: {}",
+                    text
+                );
             }
             other => panic!("Erwartet SystemMessage, bekam: {:?}", other),
         }
@@ -1152,7 +1277,7 @@ mod tests {
             id: "2".into(),
             label: "cron-test".into(),
             kind: ScheduleKind::Cron {
-                schedule,
+                schedule: Box::new(schedule),
                 next_fire: Instant::now() - std::time::Duration::from_secs(1),
             },
         });

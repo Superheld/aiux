@@ -15,6 +15,7 @@ pub struct AgentConfig {
     #[serde(default = "default_temperature")]
     pub temperature: f64,
     /// Env-Variable fuer den API-Key. Falls nicht gesetzt, wird der Default pro Provider genutzt.
+    #[allow(dead_code)]
     pub api_key_env: Option<String>,
     /// Context-Window Override (in Tokens). Wenn nicht gesetzt, wird anhand des Modells geschaetzt.
     #[serde(default)]
@@ -90,6 +91,7 @@ impl Config {
 
     /// Gibt den Namen der Env-Variable fuer den API-Key zurueck.
     /// Entweder explizit konfiguriert oder der Default pro Provider.
+    #[allow(dead_code)]
     pub fn api_key_env(&self) -> &str {
         if let Some(ref env) = self.neocortex.api_key_env {
             return env;
@@ -99,7 +101,10 @@ impl Config {
             "mistral" => "MISTRAL_API_KEY",
             "ollama" => "", // Ollama braucht keinen API-Key
             other => {
-                eprintln!("Unbekannter Provider '{}', kein Default-API-Key bekannt.", other);
+                eprintln!(
+                    "Unbekannter Provider '{}', kein Default-API-Key bekannt.",
+                    other
+                );
                 ""
             }
         }
@@ -119,8 +124,8 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     fn test_home() -> (TempDir, std::path::PathBuf) {
         let tmp = TempDir::new().unwrap();
@@ -136,12 +141,16 @@ mod tests {
     #[test]
     fn config_laden_nur_neocortex() {
         let (_tmp, home) = test_home();
-        fs::write(home.join(".system/config.toml"), r#"
+        fs::write(
+            home.join(".system/config.toml"),
+            r#"
 [neocortex]
 provider = "anthropic"
 model = "claude-sonnet-4-5-20250929"
 temperature = 0.5
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let config = Config::load(&home).unwrap();
         assert_eq!(config.neocortex.provider, "anthropic");
@@ -155,11 +164,15 @@ temperature = 0.5
     #[test]
     fn config_defaults_temperature() {
         let (_tmp, home) = test_home();
-        fs::write(home.join(".system/config.toml"), r#"
+        fs::write(
+            home.join(".system/config.toml"),
+            r#"
 [neocortex]
 provider = "anthropic"
 model = "claude-sonnet-4-5-20250929"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let config = Config::load(&home).unwrap();
         assert_eq!(config.neocortex.temperature, 0.7); // Default
@@ -168,11 +181,15 @@ model = "claude-sonnet-4-5-20250929"
     #[test]
     fn config_defaults_optionale_felder() {
         let (_tmp, home) = test_home();
-        fs::write(home.join(".system/config.toml"), r#"
+        fs::write(
+            home.join(".system/config.toml"),
+            r#"
 [neocortex]
 provider = "anthropic"
 model = "test-model"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let config = Config::load(&home).unwrap();
         assert!(config.neocortex.api_key_env.is_none());
@@ -184,7 +201,9 @@ model = "test-model"
     #[test]
     fn config_alle_sections() {
         let (_tmp, home) = test_home();
-        fs::write(home.join(".system/config.toml"), r#"
+        fs::write(
+            home.join(".system/config.toml"),
+            r#"
 [neocortex]
 provider = "mistral"
 model = "mistral-large-latest"
@@ -199,7 +218,9 @@ model = "claude-haiku-4-5-20251001"
 
 [mqtt]
 host = "localhost"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let config = Config::load(&home).unwrap();
         assert_eq!(config.neocortex.provider, "mistral");
@@ -218,7 +239,9 @@ host = "localhost"
     #[test]
     fn config_mqtt_mit_port() {
         let (_tmp, home) = test_home();
-        fs::write(home.join(".system/config.toml"), r#"
+        fs::write(
+            home.join(".system/config.toml"),
+            r#"
 [neocortex]
 provider = "anthropic"
 model = "test"
@@ -226,7 +249,9 @@ model = "test"
 [mqtt]
 host = "192.168.1.1"
 port = 9883
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let config = Config::load(&home).unwrap();
         let mqtt = config.mqtt.as_ref().unwrap();
@@ -239,16 +264,23 @@ port = 9883
         let (_tmp, home) = test_home();
         let result = Config::load(&home);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Config nicht gefunden"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Config nicht gefunden"));
     }
 
     #[test]
     fn config_fehlende_pflichtfelder() {
         let (_tmp, home) = test_home();
-        fs::write(home.join(".system/config.toml"), r#"
+        fs::write(
+            home.join(".system/config.toml"),
+            r#"
 [neocortex]
 provider = "anthropic"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let result = Config::load(&home);
         assert!(result.is_err()); // model fehlt
@@ -365,7 +397,9 @@ provider = "anthropic"
     #[test]
     fn config_mit_shell() {
         let (_tmp, home) = test_home();
-        fs::write(home.join(".system/config.toml"), r#"
+        fs::write(
+            home.join(".system/config.toml"),
+            r#"
 [neocortex]
 provider = "anthropic"
 model = "test"
@@ -373,7 +407,9 @@ model = "test"
 [shell]
 whitelist = ["ls", "cat", "echo"]
 timeout = 15
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let config = Config::load(&home).unwrap();
         let shell = config.shell.as_ref().unwrap();
@@ -384,14 +420,18 @@ timeout = 15
     #[test]
     fn config_shell_default_timeout() {
         let (_tmp, home) = test_home();
-        fs::write(home.join(".system/config.toml"), r#"
+        fs::write(
+            home.join(".system/config.toml"),
+            r#"
 [neocortex]
 provider = "anthropic"
 model = "test"
 
 [shell]
 whitelist = ["ls"]
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let config = Config::load(&home).unwrap();
         let shell = config.shell.as_ref().unwrap();

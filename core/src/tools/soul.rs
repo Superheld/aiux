@@ -184,7 +184,11 @@ mod tests {
     #[tokio::test]
     async fn edit_ersetzt_abschnitt() {
         let (tmp, tool) = test_tool();
-        fs::write(tmp.path().join("memory/soul.md"), "Ich bin ruhig und freundlich.").unwrap();
+        fs::write(
+            tmp.path().join("memory/soul.md"),
+            "Ich bin ruhig und freundlich.",
+        )
+        .unwrap();
 
         let result = tool.call(edit_args("ruhig", "laut")).await.unwrap();
         assert!(result.success);

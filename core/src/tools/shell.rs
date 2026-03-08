@@ -153,8 +153,7 @@ impl Tool for ShellTool {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         // Whitelist pruefen
-        validate_command(&args.command, &self.config.whitelist)
-            .map_err(ShellError)?;
+        validate_command(&args.command, &self.config.whitelist).map_err(ShellError)?;
 
         // Befehl ausfuehren mit Timeout
         let timeout = Duration::from_secs(self.config.timeout);
@@ -200,9 +199,11 @@ mod tests {
 
     fn default_whitelist() -> Vec<String> {
         vec![
-            "ls", "cat", "echo", "uname", "whoami", "date",
-            "grep", "head", "tail", "wc",
-        ].into_iter().map(String::from).collect()
+            "ls", "cat", "echo", "uname", "whoami", "date", "grep", "head", "tail", "wc",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect()
     }
 
     // ==========================================================
@@ -337,9 +338,12 @@ mod tests {
     #[tokio::test]
     async fn ausfuehrung_erfolgreich() {
         let tool = test_tool();
-        let result = tool.call(ShellArgs {
-            command: "echo hello".into(),
-        }).await.unwrap();
+        let result = tool
+            .call(ShellArgs {
+                command: "echo hello".into(),
+            })
+            .await
+            .unwrap();
 
         assert!(result.success);
         assert_eq!(result.exit_code, 0);
@@ -349,9 +353,12 @@ mod tests {
     #[tokio::test]
     async fn ausfuehrung_exit_code() {
         let tool = test_tool();
-        let result = tool.call(ShellArgs {
-            command: "ls /nonexistent_path_xyz".into(),
-        }).await.unwrap();
+        let result = tool
+            .call(ShellArgs {
+                command: "ls /nonexistent_path_xyz".into(),
+            })
+            .await
+            .unwrap();
 
         assert!(!result.success);
         assert_ne!(result.exit_code, 0);
@@ -360,9 +367,11 @@ mod tests {
     #[tokio::test]
     async fn whitelist_blockiert() {
         let tool = test_tool();
-        let result = tool.call(ShellArgs {
-            command: "rm -rf /".into(),
-        }).await;
+        let result = tool
+            .call(ShellArgs {
+                command: "rm -rf /".into(),
+            })
+            .await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("rm"));
@@ -375,9 +384,12 @@ mod tests {
             timeout: 1,
         });
 
-        let result = tool.call(ShellArgs {
-            command: "echo fast".into(),
-        }).await.unwrap();
+        let result = tool
+            .call(ShellArgs {
+                command: "echo fast".into(),
+            })
+            .await
+            .unwrap();
         assert!(result.success);
     }
 }

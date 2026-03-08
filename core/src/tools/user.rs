@@ -156,7 +156,11 @@ mod tests {
     #[tokio::test]
     async fn edit_ersetzt_abschnitt() {
         let (tmp, tool) = test_tool();
-        fs::write(tmp.path().join("memory/user.md"), "Bruce mag Rust und Python.").unwrap();
+        fs::write(
+            tmp.path().join("memory/user.md"),
+            "Bruce mag Rust und Python.",
+        )
+        .unwrap();
 
         tool.call(edit_args("Python", "Go")).await.unwrap();
 

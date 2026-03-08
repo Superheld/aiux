@@ -57,7 +57,7 @@ pub async fn hippocampus_call(
             let client = anthropic::Client::from_env();
             let agent = client
                 .agent(model)
-                .preamble(&preamble)
+                .preamble(preamble)
                 .temperature(0.3)
                 .tool(soul_tool)
                 .tool(user_tool)
@@ -69,7 +69,7 @@ pub async fn hippocampus_call(
             let client = mistral::Client::from_env();
             let agent = client
                 .agent(model)
-                .preamble(&preamble)
+                .preamble(preamble)
                 .temperature(0.3)
                 .tool(soul_tool)
                 .tool(user_tool)
@@ -82,7 +82,7 @@ pub async fn hippocampus_call(
                 .map_err(|e| anyhow::anyhow!("Ollama-Client: {}", e))?;
             let agent = client
                 .agent(model)
-                .preamble(&preamble)
+                .preamble(preamble)
                 .temperature(0.3)
                 .tool(soul_tool)
                 .tool(user_tool)

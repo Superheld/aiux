@@ -22,12 +22,14 @@ pub fn build_message(source: &str, event: &str, data: serde_json::Value) -> Stri
         "source": source,
         "event": event,
         "data": data,
-    }).to_string()
+    })
+    .to_string()
 }
 
 /// Message auf ein Topic publishen.
 pub async fn publish(client: &AsyncClient, topic: &str, payload: &str) -> Result<(), String> {
-    client.publish(topic, QoS::AtLeastOnce, false, payload.as_bytes())
+    client
+        .publish(topic, QoS::AtLeastOnce, false, payload.as_bytes())
         .await
         .map_err(|e| format!("MQTT publish fehlgeschlagen: {}", e))
 }

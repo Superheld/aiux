@@ -117,7 +117,10 @@ mod tests {
 
     #[test]
     fn window_claude_modelle() {
-        assert_eq!(context_window_size("claude-sonnet-4-5-20250929", None), 200_000);
+        assert_eq!(
+            context_window_size("claude-sonnet-4-5-20250929", None),
+            200_000
+        );
         assert_eq!(context_window_size("claude-3-haiku", None), 200_000);
     }
 
@@ -135,7 +138,10 @@ mod tests {
 
     #[test]
     fn window_config_override() {
-        assert_eq!(context_window_size("claude-sonnet-4-5-20250929", Some(50_000)), 50_000);
+        assert_eq!(
+            context_window_size("claude-sonnet-4-5-20250929", Some(50_000)),
+            50_000
+        );
         assert_eq!(context_window_size("unbekannt", Some(8_000)), 8_000);
     }
 
@@ -146,10 +152,7 @@ mod tests {
     #[test]
     fn history_save_and_load_roundtrip() {
         let (_tmp, home) = test_home();
-        let history = vec![
-            Message::user("Hallo"),
-            Message::assistant("Hi!"),
-        ];
+        let history = vec![Message::user("Hallo"), Message::assistant("Hi!")];
         save_history(&home, &history);
 
         let loaded = load_history(&home);
@@ -190,7 +193,9 @@ mod tests {
     fn conversation_path_in_conversations_subdir() {
         let (_tmp, home) = test_home();
         let path = conversation_path(&home);
-        assert!(path.to_string_lossy().contains("memory/conversations/conversation-"));
+        assert!(path
+            .to_string_lossy()
+            .contains("memory/conversations/conversation-"));
         assert!(path.to_string_lossy().ends_with(".json"));
     }
 

@@ -13,8 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
 use crate::brainstem::{
-    SharedScheduler, ScheduleEntry, ScheduleKind,
-    next_cron_duration, parse_delay,
+    next_cron_duration, parse_delay, ScheduleEntry, ScheduleKind, SharedScheduler,
 };
 
 /// Ergebnis des SchedulerTools.
@@ -62,7 +61,9 @@ impl SchedulerTool {
     }
 
     fn gen_id(&self) -> String {
-        let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         format!("t{}", id)
     }
 }
@@ -79,7 +80,8 @@ impl Tool for SchedulerTool {
             name: "scheduler".to_string(),
             description: "Timer und Cron-Jobs verwalten. \
                 Setze einmalige Timer (set), wiederkehrende Cron-Jobs (cron), \
-                zeige alle aktiven Eintraege (list) oder loesche einen (cancel).".to_string(),
+                zeige alle aktiven Eintraege (list) oder loesche einen (cancel)."
+                .to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -113,11 +115,11 @@ impl Tool for SchedulerTool {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         match args.action.as_str() {
             "set" => {
-                let delay_str = args.delay
+                let delay_str = args
+                    .delay
                     .ok_or_else(|| SchedulerError("'delay' ist erforderlich bei 'set'".into()))?;
                 let label = args.label.unwrap_or_else(|| "timer".into());
-                let duration = parse_delay(&delay_str)
-                    .map_err(|e| SchedulerError(e))?;
+                let duration = parse_delay(&delay_str).map_err(SchedulerError)?;
 
                 let id = self.gen_id();
                 let entry = ScheduleEntry {
@@ -136,7 +138,8 @@ impl Tool for SchedulerTool {
                 })
             }
             "cron" => {
-                let expr = args.expr
+                let expr = args
+                    .expr
                     .ok_or_else(|| SchedulerError("'expr' ist erforderlich bei 'cron'".into()))?;
                 let label = args.label.unwrap_or_else(|| "cron".into());
 
@@ -149,7 +152,7 @@ impl Tool for SchedulerTool {
                     id: id.clone(),
                     label: label.clone(),
                     kind: ScheduleKind::Cron {
-                        schedule,
+                        schedule: Box::new(schedule),
                         next_fire: Instant::now() + dur,
                     },
                 };
@@ -200,7 +203,8 @@ impl Tool for SchedulerTool {
                 })
             }
             "cancel" => {
-                let id = args.id
+                let id = args
+                    .id
                     .ok_or_else(|| SchedulerError("'id' ist erforderlich bei 'cancel'".into()))?;
 
                 let mut entries = self.scheduler.lock().unwrap();
@@ -220,7 +224,8 @@ impl Tool for SchedulerTool {
                 }
             }
             other => Err(SchedulerError(format!(
-                "Unbekannte Aktion '{}'. Erlaubt: set, cron, list, cancel", other
+                "Unbekannte Aktion '{}'. Erlaubt: set, cron, list, cancel",
+                other
             ))),
         }
     }
@@ -239,13 +244,16 @@ mod tests {
     #[tokio::test]
     async fn set_timer() {
         let tool = test_tool();
-        let result = tool.call(SchedulerArgs {
-            action: "set".into(),
-            delay: Some("30m".into()),
-            expr: None,
-            label: Some("test".into()),
-            id: None,
-        }).await.unwrap();
+        let result = tool
+            .call(SchedulerArgs {
+                action: "set".into(),
+                delay: Some("30m".into()),
+                expr: None,
+                label: Some("test".into()),
+                id: None,
+            })
+            .await
+            .unwrap();
 
         assert!(result.success);
         assert!(result.message.contains("test"));
@@ -255,26 +263,31 @@ mod tests {
     #[tokio::test]
     async fn set_ohne_delay() {
         let tool = test_tool();
-        let result = tool.call(SchedulerArgs {
-            action: "set".into(),
-            delay: None,
-            expr: None,
-            label: Some("test".into()),
-            id: None,
-        }).await;
+        let result = tool
+            .call(SchedulerArgs {
+                action: "set".into(),
+                delay: None,
+                expr: None,
+                label: Some("test".into()),
+                id: None,
+            })
+            .await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn cron_job() {
         let tool = test_tool();
-        let result = tool.call(SchedulerArgs {
-            action: "cron".into(),
-            delay: None,
-            expr: Some("0 0 * * * * *".into()),
-            label: Some("stuendlich".into()),
-            id: None,
-        }).await.unwrap();
+        let result = tool
+            .call(SchedulerArgs {
+                action: "cron".into(),
+                delay: None,
+                expr: Some("0 0 * * * * *".into()),
+                label: Some("stuendlich".into()),
+                id: None,
+            })
+            .await
+            .unwrap();
 
         assert!(result.success);
         assert!(result.message.contains("stuendlich"));
@@ -284,26 +297,31 @@ mod tests {
     #[tokio::test]
     async fn cron_ungueltig() {
         let tool = test_tool();
-        let result = tool.call(SchedulerArgs {
-            action: "cron".into(),
-            delay: None,
-            expr: Some("ungueltig".into()),
-            label: None,
-            id: None,
-        }).await;
+        let result = tool
+            .call(SchedulerArgs {
+                action: "cron".into(),
+                delay: None,
+                expr: Some("ungueltig".into()),
+                label: None,
+                id: None,
+            })
+            .await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn list_leer() {
         let tool = test_tool();
-        let result = tool.call(SchedulerArgs {
-            action: "list".into(),
-            delay: None,
-            expr: None,
-            label: None,
-            id: None,
-        }).await.unwrap();
+        let result = tool
+            .call(SchedulerArgs {
+                action: "list".into(),
+                delay: None,
+                expr: None,
+                label: None,
+                id: None,
+            })
+            .await
+            .unwrap();
 
         assert!(result.success);
         assert!(result.message.contains("Keine aktiven"));
@@ -319,15 +337,20 @@ mod tests {
             expr: None,
             label: Some("erinnerung".into()),
             id: None,
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
 
-        let result = tool.call(SchedulerArgs {
-            action: "list".into(),
-            delay: None,
-            expr: None,
-            label: None,
-            id: None,
-        }).await.unwrap();
+        let result = tool
+            .call(SchedulerArgs {
+                action: "list".into(),
+                delay: None,
+                expr: None,
+                label: None,
+                id: None,
+            })
+            .await
+            .unwrap();
 
         assert!(result.success);
         assert!(result.message.contains("erinnerung"));
@@ -343,18 +366,23 @@ mod tests {
             expr: None,
             label: Some("test".into()),
             id: None,
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
 
         // ID aus der Message extrahieren
         let id = tool.scheduler.lock().unwrap()[0].id.clone();
 
-        let result = tool.call(SchedulerArgs {
-            action: "cancel".into(),
-            delay: None,
-            expr: None,
-            label: None,
-            id: Some(id),
-        }).await.unwrap();
+        let result = tool
+            .call(SchedulerArgs {
+                action: "cancel".into(),
+                delay: None,
+                expr: None,
+                label: None,
+                id: Some(id),
+            })
+            .await
+            .unwrap();
 
         assert!(result.success);
         assert!(result.message.contains("geloescht"));
@@ -364,13 +392,16 @@ mod tests {
     #[tokio::test]
     async fn cancel_nicht_vorhanden() {
         let tool = test_tool();
-        let result = tool.call(SchedulerArgs {
-            action: "cancel".into(),
-            delay: None,
-            expr: None,
-            label: None,
-            id: Some("gibts-nicht".into()),
-        }).await.unwrap();
+        let result = tool
+            .call(SchedulerArgs {
+                action: "cancel".into(),
+                delay: None,
+                expr: None,
+                label: None,
+                id: Some("gibts-nicht".into()),
+            })
+            .await
+            .unwrap();
 
         assert!(!result.success);
     }
@@ -378,13 +409,15 @@ mod tests {
     #[tokio::test]
     async fn unbekannte_aktion() {
         let tool = test_tool();
-        let result = tool.call(SchedulerArgs {
-            action: "delete".into(),
-            delay: None,
-            expr: None,
-            label: None,
-            id: None,
-        }).await;
+        let result = tool
+            .call(SchedulerArgs {
+                action: "delete".into(),
+                delay: None,
+                expr: None,
+                label: None,
+                id: None,
+            })
+            .await;
         assert!(result.is_err());
     }
 }

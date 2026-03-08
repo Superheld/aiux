@@ -12,8 +12,8 @@ use std::time::Duration;
 use rumqttc::{AsyncClient, Event as MqttEvent, MqttOptions, Packet, QoS};
 use tokio::sync::broadcast;
 
-use crate::bus::Bus;
 use crate::bus::events::Event;
+use crate::bus::Bus;
 
 /// Die MQTT-Bridge — das Rueckenmark zwischen internem Bus und MQTT.
 pub struct MqttBridge {
@@ -135,7 +135,12 @@ impl MqttBridge {
             };
             let data = json.get("data").cloned().unwrap_or(serde_json::Value::Null);
 
-            self.bus.publish(Event::NerveSignal { source, event, data, ts });
+            self.bus.publish(Event::NerveSignal {
+                source,
+                event,
+                data,
+                ts,
+            });
         }
     }
 
@@ -151,10 +156,9 @@ impl MqttBridge {
                             "aiux/neocortex/response",
                             serde_json::json!({ "text": full_text }),
                         ),
-                        Event::SystemMessage { text } => (
-                            "aiux/neocortex/system",
-                            serde_json::json!({ "text": text }),
-                        ),
+                        Event::SystemMessage { text } => {
+                            ("aiux/neocortex/system", serde_json::json!({ "text": text }))
+                        }
                         Event::ToolCall { name } => (
                             "aiux/neocortex/toolcall",
                             serde_json::json!({ "name": name }),
@@ -208,7 +212,12 @@ mod tests {
 
         let event = rx.try_recv().unwrap();
         match event {
-            Event::NerveSignal { source, event, data, ts } => {
+            Event::NerveSignal {
+                source,
+                event,
+                data,
+                ts,
+            } => {
                 assert_eq!(source, "nerve/file");
                 assert_eq!(event, "changed");
                 assert_eq!(ts, "2026-03-02T14:00:00Z");
@@ -301,7 +310,9 @@ mod tests {
     #[test]
     fn event_filter_outgoing() {
         let internal_events = vec![
-            Event::UserInput { text: "test".into() },
+            Event::UserInput {
+                text: "test".into(),
+            },
             Event::ResponseToken { text: "tok".into() },
             Event::Shutdown,
             Event::ClearHistory,
@@ -313,24 +324,30 @@ mod tests {
             let should_forward = matches!(
                 event,
                 Event::ResponseComplete { .. }
-                | Event::SystemMessage { .. }
-                | Event::ToolCall { .. }
+                    | Event::SystemMessage { .. }
+                    | Event::ToolCall { .. }
             );
             assert!(!should_forward, "Event {:?} sollte intern bleiben", event);
         }
 
         let external_events: Vec<Event> = vec![
-            Event::ResponseComplete { full_text: "hi".into() },
-            Event::SystemMessage { text: "info".into() },
-            Event::ToolCall { name: "memory".into() },
+            Event::ResponseComplete {
+                full_text: "hi".into(),
+            },
+            Event::SystemMessage {
+                text: "info".into(),
+            },
+            Event::ToolCall {
+                name: "memory".into(),
+            },
         ];
 
         for event in &external_events {
             let should_forward = matches!(
                 event,
                 Event::ResponseComplete { .. }
-                | Event::SystemMessage { .. }
-                | Event::ToolCall { .. }
+                    | Event::SystemMessage { .. }
+                    | Event::ToolCall { .. }
             );
             assert!(should_forward, "Event {:?} sollte nach MQTT gehen", event);
         }

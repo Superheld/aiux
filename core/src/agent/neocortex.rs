@@ -16,12 +16,12 @@ use rig::message::Message;
 use rig::providers::{anthropic, mistral, ollama};
 use rig::streaming::{StreamedAssistantContent, StreamingChat};
 
-use crate::bus::Bus;
-use crate::bus::events::Event;
-use crate::config::Config;
-use crate::history;
 use super::hippocampus;
 use crate::brainstem::SharedScheduler;
+use crate::bus::events::Event;
+use crate::bus::Bus;
+use crate::config::Config;
+use crate::history;
 use crate::tools::memory::MemoryTool;
 use crate::tools::scheduler::SchedulerTool;
 use crate::tools::shell::ShellTool;
@@ -39,9 +39,9 @@ macro_rules! stream_agent {
 
         while let Some(chunk) = stream.next().await {
             match chunk {
-                Ok(MultiTurnStreamItem::StreamAssistantItem(
-                    StreamedAssistantContent::Text(text),
-                )) => {
+                Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
+                    text,
+                ))) => {
                     $bus.publish(Event::ResponseToken {
                         text: text.text.clone(),
                     });
@@ -126,13 +126,15 @@ fn build_body_section(config: &Config) -> String {
         "- **soul.md** — Meine Identitaet. Wer ich bin, wie ich spreche.\n\
          - **user.md** — Mein Wissen ueber Bruce.\n\
          - **notes.md** — Mein Notizbuch. Hier schreibe ich auf was ich lerne.\n\
-         - **conversations/** — Meine Gespraeche (pro Tag eine Datei, automatisch).\n"
+         - **conversations/** — Meine Gespraeche (pro Tag eine Datei, automatisch).\n",
     );
 
     // --- Wissen (Skills) ---
     s.push_str("\n## Wissen — Skills\n\n");
-    s.push_str("Noch keine Skills geladen. Skills sind Expertise als Text — \
-         Anleitungen, Domaenenwissen, Vorlagen. Kein Code, sondern Wissen.\n");
+    s.push_str(
+        "Noch keine Skills geladen. Skills sind Expertise als Text — \
+         Anleitungen, Domaenenwissen, Vorlagen. Kein Code, sondern Wissen.\n",
+    );
 
     // --- Handeln (Tools) ---
     s.push_str("\n## Handeln — Tools\n\n");
@@ -140,7 +142,7 @@ fn build_body_section(config: &Config) -> String {
         "- **SoulTool** — soul.md lesen/schreiben\n\
          - **UserTool** — user.md lesen/schreiben\n\
          - **MemoryTool** — notes.md lesen/schreiben\n\
-         - **SchedulerTool** — Reminder und Heartbeats planen\n"
+         - **SchedulerTool** — Reminder und Heartbeats planen\n",
     );
     if let Some(ref shell) = config.shell {
         if !shell.whitelist.is_empty() {
@@ -290,10 +292,14 @@ impl Core {
 
         // ShellTool: immer registriert, aber mit leerer Whitelist wenn [shell] fehlt.
         // (rig-core Builder aendert den Typ pro .tool() — bedingt registrieren geht nicht)
-        let shell_config = self.config.shell.clone().unwrap_or(crate::config::ShellConfig {
-            whitelist: vec![],
-            timeout: 30,
-        });
+        let shell_config = self
+            .config
+            .shell
+            .clone()
+            .unwrap_or(crate::config::ShellConfig {
+                whitelist: vec![],
+                timeout: 30,
+            });
         let shell_tool = ShellTool::new(shell_config);
 
         // Stream-Verarbeitung passiert im match-Block,
@@ -374,7 +380,10 @@ impl Core {
 
         // Kompaktifizierung pruefen
         if let Some(ref u) = usage {
-            let window = history::context_window_size(&self.config.neocortex.model, self.config.neocortex.context_window);
+            let window = history::context_window_size(
+                &self.config.neocortex.model,
+                self.config.neocortex.context_window,
+            );
             let threshold = self.config.neocortex.compact_threshold.unwrap_or(80);
             if threshold > 0 && history::should_compact(u.input_tokens, window, threshold) {
                 self.bus.publish(Event::Compacting);
@@ -547,10 +556,7 @@ mod tests {
     fn history_for_agent_ohne_marker() {
         let (_tmp, home) = test_home();
         let mut core = test_core(home);
-        core.history = vec![
-            Message::user("Eins"),
-            Message::assistant("Zwei"),
-        ];
+        core.history = vec![Message::user("Eins"), Message::assistant("Zwei")];
 
         let result = core.history_for_agent();
         assert_eq!(result.len(), 2);
